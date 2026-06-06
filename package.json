@@ -13,8 +13,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "compare-urls": "tsx scripts/compareUrls.ts",
+    "analyze-attachments": "tsx scripts/analyzeAttachments.ts",
     "test:example": "playwright test example.spec.ts -c examples/playwright.config.ts",
-    "test:responsive": "playwright test responsive.spec.ts -c examples/playwright.config.ts"
+    "test:responsive": "playwright test responsive.spec.ts -c examples/playwright.config.ts",
+    "video:preview": "remotion studio",
+    "video:render:modernize": "remotion render modernize-pros out/modernize-pros.mp4",
+    "video:render:decks": "remotion render decks-hvac out/decks-hvac.mp4"
   },
   "dependencies": {
     "@playwright/test": "^1.48.0",
@@ -27,9 +31,17 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@remotion/bundler": "^4.0.473",
+    "@remotion/cli": "^4.0.473",
+    "@remotion/renderer": "^4.0.473",
     "@types/express": "^4.17.21",
     "@types/node": "^22.7.5",
     "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "remotion": "^4.0.473",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3"
   }

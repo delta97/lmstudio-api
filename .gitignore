@@ -2,9 +2,13 @@ node_modules/
 dist/
 .env
 *.log
+.DS_Store
 
 # Generated reports
 reports/
+
+# Attachment vision-analysis output (may contain private message data)
+analysis-output/
 
 # Playwright
 examples/test-results/
