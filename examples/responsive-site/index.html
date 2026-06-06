@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nimbus &middot; Ship faster</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Freeze animations/transitions so screenshots are deterministic. */
+      *,
+      *::before,
+      *::after {
+        transition: none !important;
+        animation: none !important;
+        caret-color: transparent !important;
+      }
+      html {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <!-- Announcement bar (visible at all breakpoints) -->
+    <div
+      id="announce"
+      class="bg-indigo-600 text-white text-center text-sm py-2 px-4 font-medium"
+    >
+      New: Nimbus v4 is here. Deploy in seconds.
+    </div>
+
+    <!-- Nav -->
+    <header class="bg-white border-b border-slate-200">
+      <nav class="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-indigo-600"></div>
+          <span class="text-lg font-bold tracking-tight">Nimbus</span>
+        </div>
+
+        <!-- Desktop nav links (lg and up) -->
+        <div class="hidden lg:flex items-center gap-8 text-sm font-medium text-slate-600">
+          <a href="#">Product</a>
+          <a href="#">Customers</a>
+          <a href="#">Docs</a>
+          <!-- desktop-only element: only rendered at lg+ -->
+          <a id="desktop-link" href="#" class="text-indigo-600">Enterprise</a>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <a
+            href="#"
+            class="hidden sm:inline-block text-sm font-medium text-slate-600"
+            >Sign in</a
+          >
+          <button
+            id="primary-cta"
+            class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg"
+          >
+            Get started
+          </button>
+          <!-- mobile hamburger (below sm) -->
+          <button
+            class="sm:hidden inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200"
+            aria-label="Menu"
+          >
+            <span class="block w-4 h-0.5 bg-slate-700 relative">
+              <span class="absolute -top-1.5 left-0 w-4 h-0.5 bg-slate-700"></span>
+              <span class="absolute top-1.5 left-0 w-4 h-0.5 bg-slate-700"></span>
+            </span>
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    <!-- Hero -->
+    <section class="max-w-6xl mx-auto px-5 pt-14 pb-10 text-center">
+      <span
+        class="inline-block text-xs font-semibold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-3 py-1 rounded-full"
+        >Developer platform</span
+      >
+      <h1
+        id="hero-title"
+        class="mt-5 text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-slate-900"
+      >
+        Ship reliable software, faster.
+      </h1>
+      <p
+        id="hero-sub"
+        class="mt-4 max-w-xl mx-auto text-base sm:text-lg text-slate-600"
+      >
+        Nimbus gives your team a delightful path from commit to production.
+      </p>
+      <div class="mt-7 flex items-center justify-center gap-3">
+        <button
+          class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 py-2.5 rounded-lg"
+        >
+          Start building
+        </button>
+        <button
+          class="bg-white border border-slate-300 text-slate-700 font-semibold px-5 py-2.5 rounded-lg"
+        >
+          Live demo
+        </button>
+      </div>
+
+      <!-- mobile-only badge (below sm) -->
+      <div id="mobile-badge" class="sm:hidden mt-6">
+        <span
+          class="inline-block text-sm font-semibold text-amber-700 bg-amber-100 px-3 py-1.5 rounded-full"
+          >Free 14-day trial</span
+        >
+      </div>
+    </section>
+
+    <!-- Stats -->
+    <section class="max-w-5xl mx-auto px-5 py-8">
+      <div class="grid grid-cols-3 gap-4 text-center">
+        <div class="bg-white rounded-xl border border-slate-200 py-5">
+          <div id="stat-uptime" class="text-2xl font-extrabold text-slate-900">99.99%</div>
+          <div class="text-xs text-slate-500 mt-1">Uptime</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 py-5">
+          <div class="text-2xl font-extrabold text-slate-900">38ms</div>
+          <div class="text-xs text-slate-500 mt-1">p50 latency</div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 py-5">
+          <div class="text-2xl font-extrabold text-slate-900">12k+</div>
+          <div class="text-xs text-slate-500 mt-1">Teams</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- tablet-only promo strip (md..lg only) -->
+    <section class="max-w-5xl mx-auto px-5">
+      <div
+        id="tablet-promo"
+        class="hidden md:block lg:hidden bg-sky-600 text-white rounded-xl px-6 py-4 text-center font-semibold"
+      >
+        Tablet exclusive: 20% off annual plans this week.
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section class="max-w-6xl mx-auto px-5 py-12">
+      <h2 class="text-2xl font-bold text-center text-slate-900">
+        Everything you need to deploy
+      </h2>
+      <div class="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div class="bg-white rounded-2xl border border-slate-200 p-6">
+          <div class="w-10 h-10 rounded-lg bg-indigo-100 mb-4"></div>
+          <h3 class="font-semibold text-slate-900">Instant previews</h3>
+          <p class="mt-2 text-sm text-slate-600">
+            Every pull request gets a live, shareable environment.
+          </p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-6">
+          <div class="w-10 h-10 rounded-lg bg-emerald-100 mb-4"></div>
+          <h3 class="font-semibold text-slate-900">Zero-config CI</h3>
+          <p class="mt-2 text-sm text-slate-600">
+            Pipelines that just work, with caching out of the box.
+          </p>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-6">
+          <div class="w-10 h-10 rounded-lg bg-rose-100 mb-4"></div>
+          <h3 id="feature-3-title" class="font-semibold text-slate-900">
+            Global edge
+          </h3>
+          <p class="mt-2 text-sm text-slate-600">
+            Serve users from 300+ locations automatically.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-300">
+      <div
+        class="max-w-6xl mx-auto px-5 py-8 flex flex-col sm:flex-row items-center justify-between gap-3"
+      >
+        <span class="text-sm">&copy; 2026 Nimbus, Inc.</span>
+        <div class="flex items-center gap-5 text-sm">
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Status</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      // Apply the "v2" variant when ?version=2 is present.
+      // All edits are in-place (no layout/height changes) so baseline and
+      // current screenshots share identical dimensions per breakpoint.
+      (function applyVersion() {
+        const version = new URLSearchParams(location.search).get("version");
+        if (version !== "2") return;
+        document.body.dataset.version = "2";
+
+        // --- Global change (visible at every breakpoint): primary CTA ---
+        const cta = document.getElementById("primary-cta");
+        cta.textContent = "Start free";
+        cta.className = cta.className
+          .replace("bg-indigo-600", "bg-emerald-600")
+          .replace("hover:bg-indigo-700", "hover:bg-emerald-700");
+
+        // --- Global change: hero subheading wording ---
+        document.getElementById("hero-sub").textContent =
+          "Nimbus gives your team a seamless path from commit to production.";
+
+        // --- Global change: a stat value ---
+        document.getElementById("stat-uptime").textContent = "99.95%";
+
+        // --- Mobile-only change (rendered only below sm) ---
+        document.getElementById("mobile-badge").querySelector("span").textContent =
+          "Free 30-day trial";
+
+        // --- Tablet-only change (rendered only md..lg) ---
+        const promo = document.getElementById("tablet-promo");
+        promo.textContent = "Tablet exclusive: 35% off annual plans this week.";
+        promo.className = promo.className.replace("bg-sky-600", "bg-fuchsia-600");
+
+        // --- Desktop-only change (rendered only lg+) ---
+        document.getElementById("desktop-link").textContent = "Business";
+      })();
+    </script>
+  </body>
+</html>

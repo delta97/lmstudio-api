@@ -1,0 +1,36 @@
+{
+  "name": "lmstudio-visual-regression",
+  "version": "0.1.0",
+  "description": "Local visual regression testing pipeline: an LM Studio-backed image comparison server plus a Playwright client helper.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "start": "tsx src/server/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "tsx scripts/smoke.ts",
+    "compare-urls": "tsx scripts/compareUrls.ts",
+    "test:example": "playwright test example.spec.ts -c examples/playwright.config.ts",
+    "test:responsive": "playwright test responsive.spec.ts -c examples/playwright.config.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.48.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "openai": "^4.67.3",
+    "pixelmatch": "^6.0.0",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.33.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.5",
+    "@types/pngjs": "^6.0.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}
