@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
-import { RunStoreProvider } from "@/lib/store";
+import { RunStoreProvider } from "@/components/RunStoreProvider";
 import SetupPage from "@/pages/SetupPage";
 import LiveRunPage from "@/pages/LiveRunPage";
 import ResultsPage from "@/pages/ResultsPage";

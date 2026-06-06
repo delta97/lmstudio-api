@@ -9,7 +9,6 @@
 
 import {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -42,8 +41,8 @@ import {
   DecidedByBadge,
   SeverityBadge,
   VerdictBadge,
-  sortChangesBySeverity,
 } from "@/components/status";
+import { sortChangesBySeverity } from "@/lib/status";
 import { formatConfidence, formatRatio } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { UrlComparisonItem } from "@/lib/types";
@@ -82,6 +81,8 @@ export function DiffViewer({
   open,
   onOpenChange,
 }: DiffViewerProps) {
+  // DiffViewer is mounted fresh each time it opens (Results unmounts it on
+  // close), so initial props seed the state directly — no open-sync effect.
   const [index, setIndex] = useState(initialIndex);
   const [mode, setMode] = useState<CompareMode>("side-by-side");
   const [onion, setOnion] = useState(50);
@@ -93,14 +94,6 @@ export function DiffViewer({
     null,
   );
   const splitBoxRef = useRef<HTMLDivElement>(null);
-
-  // Re-sync when the dialog is (re)opened on a different card.
-  useEffect(() => {
-    if (open) {
-      setIndex(initialIndex);
-      setTransform(IDENTITY);
-    }
-  }, [open, initialIndex]);
 
   const item = items[index] as UrlComparisonItem | undefined;
   const resetTransform = useCallback(() => setTransform(IDENTITY), []);

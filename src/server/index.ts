@@ -1,23 +1,51 @@
+import path from "node:path";
 import express from "express";
 import { config } from "./config.js";
 import { compareRouter } from "./routes/compare.js";
 import { compareUrlsRouter } from "./routes/compareUrls.js";
 import { healthRouter } from "./routes/health.js";
+import { runsRouter } from "./routes/runs.js";
 import { warmModel } from "./services/lmstudio.js";
+import { REPORTS_DIR } from "./services/runStore.js";
 
 const app = express();
+
+// Permissive CORS for local dev so a Vite dev server on another port can call
+// these endpoints directly even when not proxied.
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 // Screenshots are sent as base64 PNGs, which can be large.
 app.use(express.json({ limit: "50mb" }));
 
+// Serve persisted report images (baseline/current/diff PNGs) to the SPA.
+app.use("/reports", express.static(REPORTS_DIR));
+
 app.use(healthRouter);
 app.use(compareRouter);
 app.use(compareUrlsRouter);
+app.use(runsRouter);
 
 app.get("/", (_req, res) => {
   res.json({
     name: "lmstudio-visual-regression",
-    endpoints: ["GET /health", "POST /compare", "POST /compare-urls"],
+    endpoints: [
+      "GET /health",
+      "POST /compare",
+      "POST /compare-urls",
+      "GET /compare-urls/stream",
+      "GET /runs",
+      "GET /runs/:id",
+      "GET /reports/<id>/...",
+    ],
     lmStudio: config.lmStudio.baseUrl,
     model: config.lmStudio.model,
   });
