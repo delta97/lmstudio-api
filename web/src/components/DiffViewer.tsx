@@ -1,7 +1,8 @@
 /**
  * Diff Inspector — a full-screen dialog for examining one comparison pair across
  * its breakpoints. Three compare modes (side-by-side, onion-skin, split-slider),
- * wheel-zoom + drag-pan, breakpoint jumping, and the AI change list alongside.
+ * scroll/drag to pan, Ctrl/⌘-wheel or the toolbar buttons to zoom, breakpoint
+ * jumping, and the AI change list alongside.
  *
  * Opened from the Results cards. Images come from `item.images` (root-relative
  * `/reports/...` URLs); a fallback is shown for error cells without images.
@@ -9,11 +10,13 @@
 
 import {
   useCallback,
+  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
 } from "react";
 import {
   ColumnsIcon,
@@ -56,13 +59,6 @@ const MODE_ITEMS: { value: CompareMode; label: string; Icon: typeof ColumnsIcon 
     { value: "split", label: "Split", Icon: SplitSquareHorizontalIcon },
   ];
 
-interface Transform {
-  scale: number;
-  x: number;
-  y: number;
-}
-
-const IDENTITY: Transform = { scale: 1, x: 0, y: 0 };
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 
@@ -87,72 +83,127 @@ export function DiffViewer({
   const [mode, setMode] = useState<CompareMode>("side-by-side");
   const [onion, setOnion] = useState(50);
   const [split, setSplit] = useState(50);
-  const [transform, setTransform] = useState<Transform>(IDENTITY);
+  const [scale, setScale] = useState(1);
 
   const stageRef = useRef<HTMLDivElement>(null);
-  const panState = useRef<{ x: number; y: number; ox: number; oy: number } | null>(
+  const splitBoxRef = useRef<HTMLDivElement>(null);
+  // Pan via the stage's native scroll; a drag records the starting scroll offset.
+  const dragState = useRef<{ x: number; y: number; sl: number; st: number } | null>(
     null,
   );
-  const splitBoxRef = useRef<HTMLDivElement>(null);
+  // A stage-relative point to keep stationary across the next zoom step.
+  const zoomAnchor = useRef<{ cx: number; cy: number; prevScale: number } | null>(
+    null,
+  );
+  // Latest scale for the native (non-passive) wheel listener, which is bound once.
+  const scaleRef = useRef(scale);
 
   const item = items[index] as UrlComparisonItem | undefined;
-  const resetTransform = useCallback(() => setTransform(IDENTITY), []);
+
+  const resetView = useCallback(() => {
+    zoomAnchor.current = null;
+    setScale(1);
+    const el = stageRef.current;
+    if (el) {
+      el.scrollLeft = 0;
+      el.scrollTop = 0;
+    }
+  }, []);
 
   const goTo = useCallback(
     (next: number) => {
       setIndex(next);
-      resetTransform();
+      resetView();
     },
-    [resetTransform],
+    [resetView],
   );
 
-  const handleWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    setTransform((t) => {
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-      const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor));
-      if (scale === t.scale) return t;
-      // Keep the point under the cursor stationary.
-      const ratio = scale / t.scale;
-      const x = px - ratio * (px - t.x);
-      const y = py - ratio * (py - t.y);
-      return scale === MIN_SCALE ? IDENTITY : { scale, x, y };
+  // Zoom to `next`, keeping the (cx, cy) point — relative to the stage — fixed.
+  const applyZoom = useCallback((next: number, cx: number, cy: number) => {
+    setScale((prev) => {
+      const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+      if (clamped === prev) return prev;
+      zoomAnchor.current = { cx, cy, prevScale: prev };
+      return clamped;
     });
   }, []);
 
+  // Zoom from the toolbar buttons: anchor on the centre of the stage.
+  const zoomByButton = useCallback(
+    (factor: number) => {
+      const el = stageRef.current;
+      const cx = el ? el.clientWidth / 2 : 0;
+      const cy = el ? el.clientHeight / 2 : 0;
+      applyZoom(scaleRef.current * factor, cx, cy);
+    },
+    [applyZoom],
+  );
+
+  useEffect(() => {
+    scaleRef.current = scale;
+  }, [scale]);
+
+  // Plain wheel scrolls the stage natively; Ctrl/⌘ + wheel (and trackpad pinch,
+  // which the browser reports as a ctrl-wheel) zooms. A native, non-passive
+  // listener is required: React's onWheel is passive, so it can't
+  // preventDefault the browser's page zoom.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      applyZoom(
+        scaleRef.current * factor,
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+      );
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [applyZoom]);
+
+  // After a zoom step, nudge the scroll offset so the anchored point stays put.
+  useLayoutEffect(() => {
+    const a = zoomAnchor.current;
+    zoomAnchor.current = null;
+    const el = stageRef.current;
+    if (!a || !el || a.prevScale === 0) return;
+    const ratio = scale / a.prevScale;
+    el.scrollLeft = (el.scrollLeft + a.cx) * ratio - a.cx;
+    el.scrollTop = (el.scrollTop + a.cy) * ratio - a.cy;
+  }, [scale]);
+
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      if (transform.scale <= MIN_SCALE) return;
-      panState.current = {
+      const el = stageRef.current;
+      if (!el || e.button !== 0) return;
+      dragState.current = {
         x: e.clientX,
         y: e.clientY,
-        ox: transform.x,
-        oy: transform.y,
+        sl: el.scrollLeft,
+        st: el.scrollTop,
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [transform],
+    [],
   );
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      const start = panState.current;
-      if (!start) return;
-      setTransform((t) => ({
-        ...t,
-        x: start.ox + (e.clientX - start.x),
-        y: start.oy + (e.clientY - start.y),
-      }));
+      const start = dragState.current;
+      const el = stageRef.current;
+      if (!start || !el) return;
+      el.scrollLeft = start.sl - (e.clientX - start.x);
+      el.scrollTop = start.st - (e.clientY - start.y);
     },
     [],
   );
 
   const endPan = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    panState.current = null;
+    dragState.current = null;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -180,11 +231,6 @@ export function DiffViewer({
     () => (item?.ai ? sortChangesBySeverity(item.ai.changes) : []),
     [item],
   );
-
-  const transformStyle = {
-    transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-    transformOrigin: "top left",
-  };
 
   const pairName = item?.name ?? "Comparison";
   const hasImages = Boolean(item?.images);
@@ -226,28 +272,18 @@ export function DiffViewer({
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  onClick={() =>
-                    setTransform((t) => ({
-                      ...t,
-                      scale: Math.max(MIN_SCALE, t.scale / 1.4),
-                    }))
-                  }
+                  onClick={() => zoomByButton(1 / 1.4)}
                   aria-label="Zoom out"
                 >
                   <MinusIcon />
                 </Button>
                 <span className="w-12 text-center font-mono text-xs text-muted-foreground tabular-nums">
-                  {Math.round(transform.scale * 100)}%
+                  {Math.round(scale * 100)}%
                 </span>
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  onClick={() =>
-                    setTransform((t) => ({
-                      ...t,
-                      scale: Math.min(MAX_SCALE, t.scale * 1.4),
-                    }))
-                  }
+                  onClick={() => zoomByButton(1.4)}
                   aria-label="Zoom in"
                 >
                   <PlusIcon />
@@ -255,7 +291,7 @@ export function DiffViewer({
                 <Button
                   variant="outline"
                   size="icon-sm"
-                  onClick={resetTransform}
+                  onClick={resetView}
                   aria-label="Reset view"
                 >
                   <MaximizeIcon />
@@ -316,14 +352,13 @@ export function DiffViewer({
 
             <div
               ref={stageRef}
-              onWheel={handleWheel}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={endPan}
               onPointerLeave={endPan}
               className={cn(
-                "relative min-h-0 flex-1 overflow-hidden rounded-lg bg-[repeating-conic-gradient(var(--color-muted)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] ring-1 ring-border",
-                transform.scale > MIN_SCALE ? "cursor-grab" : "cursor-default",
+                "relative min-h-0 flex-1 overflow-auto rounded-lg bg-[repeating-conic-gradient(var(--color-muted)_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] ring-1 ring-border",
+                "cursor-grab active:cursor-grabbing",
               )}
             >
               {!hasImages || !item?.images ? (
@@ -333,7 +368,10 @@ export function DiffViewer({
                     : "No images available for this cell."}
                 </div>
               ) : (
-                <div className="absolute left-0 top-0 p-2" style={transformStyle}>
+                <div
+                  className="w-max p-2"
+                  style={{ zoom: scale } as unknown as CSSProperties}
+                >
                   {mode === "side-by-side" ? (
                     <div className="flex items-start gap-2">
                       {(
