@@ -39,9 +39,9 @@ function parseConfigParam(raw: string): unknown {
  * SSE variant of POST /compare-urls.
  * EventSource only does GET, so the request is passed as a JSON-encoded
  * `?config=` query param (raw urlencoded JSON or base64-encoded JSON).
- * Streams `run:start`, `cell:start`, `cell:stage`, `cell:done`, `cell:error`,
- * and `summary:update` events, then a final `done` event with the full
- * CompareUrlsResponse, before ending the response.
+ * Streams `run:start`, `run:phase`, `cell:start`, `cell:stage`, `cell:done`,
+ * `cell:error`, and `summary:update` events, then a final `done` event with the
+ * full CompareUrlsResponse, before ending the response.
  */
 compareUrlsRouter.get("/compare-urls/stream", async (req, res) => {
   const rawConfig = req.query.config;
@@ -96,6 +96,9 @@ compareUrlsRouter.get("/compare-urls/stream", async (req, res) => {
     });
     if (closed) return;
 
+    // Writing images + HTML/MD to disk happens after the last cell; surface it
+    // so the UI isn't frozen at 100% while the report is generated.
+    send("run:phase", { type: "run:phase", phase: "generating-report" });
     const { spaResponse } = await persistRun(raw);
     send("done", spaResponse);
     res.end();

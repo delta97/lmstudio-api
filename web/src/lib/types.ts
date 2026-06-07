@@ -209,6 +209,18 @@ export interface RunStartEvent {
   breakpoints: EventBreakpoint[];
 }
 
+/**
+ * Run-level phases bracketing the per-cell work: launching the browser before
+ * any capture, the capture/diff/review loop, and report generation afterwards.
+ */
+export type RunPhase = "launching" | "capturing" | "generating-report";
+
+/** Emitted when the run as a whole moves into a new phase. */
+export interface RunPhaseEvent {
+  type: "run:phase";
+  phase: RunPhase;
+}
+
 /** Emitted when a cell begins processing. */
 export interface CellStartEvent {
   type: "cell:start";
@@ -269,6 +281,7 @@ export interface SummaryUpdateEvent {
  */
 export type RunProgressEvent =
   | RunStartEvent
+  | RunPhaseEvent
   | CellStartEvent
   | CellStageEvent
   | CellDoneEvent

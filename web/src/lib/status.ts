@@ -15,12 +15,33 @@ import {
   CameraIcon,
   CheckCircle2Icon,
   CircleDashedIcon,
+  FileTextIcon,
+  RocketIcon,
   ScanSearchIcon,
   SparklesIcon,
   XCircleIcon,
   type LucideIcon,
 } from "lucide-react";
-import type { AiChange, CellStage, UrlComparisonItem } from "@/lib/types";
+import type {
+  AiChange,
+  CellStage,
+  RunPhase,
+  UrlComparisonItem,
+} from "@/lib/types";
+
+// ---- Run-level phases (live run) ----
+
+interface RunPhaseMeta {
+  label: string;
+  Icon: LucideIcon;
+}
+
+/** Labels/icons for the overall run phases that bracket the per-cell work. */
+export const RUN_PHASE_META: Record<RunPhase, RunPhaseMeta> = {
+  launching: { label: "Launching browser", Icon: RocketIcon },
+  capturing: { label: "Capturing & comparing", Icon: CameraIcon },
+  "generating-report": { label: "Generating report", Icon: FileTextIcon },
+};
 
 // ---- Cell stages (live run) ----
 

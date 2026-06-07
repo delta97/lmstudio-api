@@ -17,6 +17,7 @@ import type {
   CompareUrlsResponse,
   HealthResponse,
   RunListItem,
+  RunPhaseEvent,
   RunProgressEvent,
   RunStartEvent,
   StoredRun,
@@ -85,6 +86,7 @@ export interface RunStreamHandlers {
   /** Fires for every in-progress event, after the more specific handler below. */
   onEvent?: (event: RunProgressEvent) => void;
   onRunStart?: (event: RunStartEvent) => void;
+  onRunPhase?: (event: RunPhaseEvent) => void;
   onCellStart?: (event: CellStartEvent) => void;
   onCellStage?: (event: CellStageEvent) => void;
   onCellDone?: (event: CellDoneEvent) => void;
@@ -114,6 +116,9 @@ function dispatchProgress(
   switch (event.type) {
     case "run:start":
       handlers.onRunStart?.(event);
+      break;
+    case "run:phase":
+      handlers.onRunPhase?.(event);
       break;
     case "cell:start":
       handlers.onCellStart?.(event);
@@ -159,6 +164,7 @@ export function startRunStream(
 
   const progressTypes: RunProgressEvent["type"][] = [
     "run:start",
+    "run:phase",
     "cell:start",
     "cell:stage",
     "cell:done",

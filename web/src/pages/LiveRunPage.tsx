@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
+  RUN_PHASE_META,
   STAGE_META,
   STAGE_SEQUENCE,
   VERDICT_META,
@@ -22,6 +23,7 @@ import { cellKey } from "@/lib/types";
 import type {
   CompareUrlsRequest,
   CompareUrlsSummary,
+  RunPhase,
   StoredRun,
 } from "@/lib/types";
 import { formatConfidence, formatElapsed, formatRatio } from "@/lib/format";
@@ -56,6 +58,7 @@ export default function LiveRunPage() {
   const [cells, setCells] = useState<Map<string, LiveCell>>(new Map());
   const [order, setOrder] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
+  const [phase, setPhase] = useState<RunPhase | null>(null);
   const [summary, setSummary] = useState<CompareUrlsSummary>(EMPTY_SUMMARY);
   // Seeded once at mount; the run starts streaming immediately after.
   const [startedAt] = useState(() => Date.now());
@@ -151,6 +154,10 @@ export default function LiveRunPage() {
         }
         setCells(map);
         setOrder(keys);
+      },
+      onRunPhase: (e) => {
+        sawEvent.current = true;
+        setPhase(e.phase);
       },
       onCellStart: (e) => {
         sawEvent.current = true;
@@ -272,7 +279,11 @@ export default function LiveRunPage() {
               ) : (
                 <Badge variant="secondary" className="gap-1.5">
                   <Spinner className="size-3" />
-                  {fallback ? "running (no live stream)" : "running"}
+                  {fallback
+                    ? "running (no live stream)"
+                    : phase
+                      ? RUN_PHASE_META[phase].label
+                      : "running"}
                 </Badge>
               )}
               <span className="font-mono text-sm tabular-nums text-muted-foreground">
