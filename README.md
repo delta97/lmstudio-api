@@ -265,7 +265,7 @@ Returns LM Studio reachability and the list of available models.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | OpenAI-compatible base URL (keep the `/v1`) |
-| `LMSTUDIO_MODEL` | `qwen/qwen3-vl-4b` | Vision model identifier |
+| `LMSTUDIO_MODEL` | `google/gemma-4-12b` | Vision model identifier |
 | `LMSTUDIO_API_TOKEN` | _(empty)_ | Bearer token if you enabled auth in LM Studio |
 | `PORT` | `3100` | Comparison server port |
 | `PIXEL_THRESHOLD` | `0.001` | `diffRatio` at/below which it passes instantly |
