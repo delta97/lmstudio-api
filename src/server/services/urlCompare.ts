@@ -226,7 +226,13 @@ export async function compareUrls(
     })),
   });
 
+  // Setting up: launching the browser can take a moment before the first
+  // capture, so surface it as a run-level phase rather than a frozen screen.
+  onEvent?.({ type: "run:phase", phase: "launching" });
+
   await withBrowser({ headless: options.headless }, async (browser) => {
+    // Browser is ready; the per-cell capture/diff/review work begins.
+    onEvent?.({ type: "run:phase", phase: "capturing" });
     for (const pair of pairs) {
       for (const bp of breakpoints) {
         const name = pair.name as string;

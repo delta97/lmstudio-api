@@ -17,6 +17,19 @@ export interface EventPair {
   currentUrl: string;
 }
 
+/**
+ * Run-level phases that bracket the per-cell work, so the UI can show what the
+ * run is doing during the gaps the cell stages don't cover: launching the
+ * browser before any capture, and generating the report after the last cell.
+ */
+export type RunPhase = "launching" | "capturing" | "generating-report";
+
+/** Emitted when the run as a whole moves into a new phase. */
+export interface RunPhaseEvent {
+  type: "run:phase";
+  phase: RunPhase;
+}
+
 /** A breakpoint as advertised at the start of a run. */
 export interface EventBreakpoint {
   name: string;
@@ -87,6 +100,7 @@ export interface SummaryUpdateEvent {
 /** Discriminated union of every event emitted while a run is in progress. */
 export type CompareEvent =
   | RunStartEvent
+  | RunPhaseEvent
   | CellStartEvent
   | CellStageEvent
   | CellDoneEvent
