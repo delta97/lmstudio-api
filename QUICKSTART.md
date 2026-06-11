@@ -2,6 +2,8 @@
 
 Get the whole LM Studio visual regression pipeline running from zero on **macOS** or **Windows**.
 
+> Don't want to run a model locally? Set `LLM_PROVIDER=openrouter` with an [OpenRouter](https://openrouter.ai) API key and skip step 1 entirely — see ["Using OpenRouter"](./README.md#option-b-using-openrouter-hosted-models) in the README.
+
 There are three things to set up:
 
 1. **LM Studio** (the local AI server) + the **Gemma-4-12B** vision model.

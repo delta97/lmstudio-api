@@ -5,7 +5,7 @@ import type {
   PixelResult,
 } from "../types.js";
 import { comparePixels } from "./pixelDiff.js";
-import { triageWithVision } from "./lmstudio.js";
+import { triageWithVision } from "./visionTriage.js";
 
 /**
  * Runs the hybrid comparison:
@@ -60,7 +60,7 @@ export async function compare(
       baselinePng: request.baselinePng,
       currentPng: request.currentPng,
       diffPng: diffPngBase64,
-      diffRatio: pixel.diffRatio,
+      pixel,
       context: request.context,
     });
 
@@ -68,7 +68,8 @@ export async function compare(
       ...base,
       verdict: ai.regression ? "fail" : "pass",
       decidedBy: "ai",
-      needsReview: false,
+      // Borderline AI calls get a human in the loop instead of blind trust.
+      needsReview: ai.confidence < config.llm.reviewConfidence,
       ai,
     };
   } catch (err) {

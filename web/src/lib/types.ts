@@ -137,23 +137,30 @@ export type StoredRun = CompareUrlsResponse & {
 
 // ---- Health (GET /health) ----
 
-export interface LmStudioHealth {
-  /** Whether the LM Studio endpoint is reachable. */
+export type LlmProvider = "lmstudio" | "openrouter";
+
+export interface LlmHealth {
+  /** Active LLM backend serving the vision model. */
+  provider: LlmProvider;
+  /** Whether the provider endpoint is reachable (and the key valid). */
   reachable: boolean;
   baseUrl: string;
   /** The configured vision model id. */
   configuredModel: string;
-  /** Whether the configured model is currently loaded. */
+  /** Loaded (LM Studio) or available in the catalog (OpenRouter). */
   modelLoaded: boolean;
-  /** Model ids currently available/loaded in LM Studio. */
+  /** Model ids currently available at the provider. */
   availableModels: string[];
-  /** Present when LM Studio could not be reached. */
+  /** Present when the provider could not be reached. */
   error?: string;
 }
 
 export interface HealthResponse {
   status: "ok" | "degraded";
-  lmStudio: LmStudioHealth;
+  provider: LlmProvider;
+  llm: LlmHealth;
+  /** Deprecated alias of `llm`, kept for older clients. */
+  lmStudio: LlmHealth;
 }
 
 // ---- Run history (GET /runs, GET /runs/:id) ----

@@ -5,7 +5,7 @@ import { compareRouter } from "./routes/compare.js";
 import { compareUrlsRouter } from "./routes/compareUrls.js";
 import { healthRouter } from "./routes/health.js";
 import { runsRouter } from "./routes/runs.js";
-import { warmModel } from "./services/lmstudio.js";
+import { providerLabel, warmModel } from "./services/llm.js";
 import { REPORTS_DIR } from "./services/runStore.js";
 
 const app = express();
@@ -46,13 +46,14 @@ app.get("/", (_req, res) => {
       "GET /runs/:id",
       "GET /reports/<id>/...",
     ],
-    lmStudio: config.lmStudio.baseUrl,
-    model: config.lmStudio.model,
+    provider: config.llm.provider,
+    llmBaseUrl: config.llm.baseUrl,
+    model: config.llm.model,
   });
 });
 
 async function start(): Promise<void> {
-  if (config.warmModelOnStart) {
+  if (config.warmModelOnStart && config.llm.provider === "lmstudio") {
     try {
       console.log(`Warming model "${config.lmStudio.model}"...`);
       await warmModel();
@@ -68,8 +69,8 @@ async function start(): Promise<void> {
     console.log(
       `Visual regression server listening on http://localhost:${config.server.port}`,
     );
-    console.log(`  LM Studio: ${config.lmStudio.baseUrl}`);
-    console.log(`  Model:     ${config.lmStudio.model}`);
+    console.log(`  Provider:  ${providerLabel} (${config.llm.baseUrl})`);
+    console.log(`  Model:     ${config.llm.model}`);
     console.log(
       `  Thresholds: pass<=${config.diff.pixelThreshold}, fail>=${config.diff.maxRatio}`,
     );
