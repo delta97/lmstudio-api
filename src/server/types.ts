@@ -51,11 +51,28 @@ export interface AiChange {
   severity: "low" | "medium" | "high";
 }
 
+/**
+ * Token/cost accounting for the LLM call(s) behind one verdict. `costUsd` is
+ * reported by hosted providers that meter spend (OpenRouter); it is absent for
+ * local backends (LM Studio), where inference is free.
+ */
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Spend in USD as reported by the provider, when available. */
+  costUsd?: number;
+  /** The model that actually served the call. */
+  model: string;
+}
+
 export interface AiVerdict {
   regression: boolean;
   confidence: number;
   summary: string;
   changes: AiChange[];
+  /** Token counts and provider-reported cost for this verdict's model call. */
+  usage?: LlmUsage;
   /** Present when the model call failed and the result needs human review. */
   error?: string;
 }
@@ -150,15 +167,23 @@ export interface UrlComparisonItem {
   images?: { baseline: string; current: string; diff: string };
 }
 
+export interface CompareUrlsSummary {
+  comparisons: number;
+  different: number;
+  errors: number;
+  changesFlagged: number;
+  /** Number of comparisons that used an AI vision call. */
+  aiCalls?: number;
+  /** Total LLM tokens consumed across all AI calls in the run. */
+  totalTokens?: number;
+  /** Total provider-reported spend in USD (0 for local providers). */
+  costUsd?: number;
+}
+
 export interface CompareUrlsResponse {
   reportDir: string;
   reportHtml: string;
   reportMd: string;
-  summary: {
-    comparisons: number;
-    different: number;
-    errors: number;
-    changesFlagged: number;
-  };
+  summary: CompareUrlsSummary;
   results: UrlComparisonItem[];
 }

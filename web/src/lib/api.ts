@@ -16,6 +16,8 @@ import type {
   CompareUrlsRequest,
   CompareUrlsResponse,
   HealthResponse,
+  JobSnapshot,
+  JobStateEvent,
   RunListItem,
   RunPhaseEvent,
   RunProgressEvent,
@@ -81,8 +83,37 @@ export function getRun(id: string): Promise<StoredRun> {
   return request<StoredRun>(`/runs/${encodeURIComponent(id)}`);
 }
 
-/** Per-event callbacks for {@link startRunStream}. All optional. */
+// ---- Comparison jobs (POST /jobs, GET /jobs, GET /jobs/:id/stream) ----
+
+/** POST /jobs — start a comparison job server-side; returns immediately. */
+export async function startJob(
+  config: CompareUrlsRequest,
+): Promise<JobSnapshot> {
+  const data = await request<{ job: JobSnapshot }>("/jobs", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+  return data.job;
+}
+
+/** GET /jobs — all known jobs, newest first. */
+export async function listJobs(): Promise<JobSnapshot[]> {
+  const data = await request<{ jobs: JobSnapshot[] }>("/jobs");
+  return data.jobs;
+}
+
+/** GET /jobs/:id — snapshot of one job (used as the polling fallback). */
+export async function getJobSnapshot(id: string): Promise<JobSnapshot> {
+  const data = await request<{ job: JobSnapshot }>(
+    `/jobs/${encodeURIComponent(id)}`,
+  );
+  return data.job;
+}
+
+/** Per-event callbacks for {@link startRunStream} / {@link attachJobStream}. */
 export interface RunStreamHandlers {
+  /** Job lifecycle transitions (queued → running → done/error). Jobs only. */
+  onJobState?: (event: JobStateEvent) => void;
   /** Fires for every in-progress event, after the more specific handler below. */
   onEvent?: (event: RunProgressEvent) => void;
   onRunStart?: (event: RunStartEvent) => void;
@@ -140,27 +171,34 @@ function dispatchProgress(
 }
 
 /**
- * GET /compare-urls/stream — start a run and stream progress over SSE.
- *
- * EventSource only supports GET, so the run config is JSON-encoded into a
- * `config` query parameter. The backend emits NAMED SSE events
- * (`event: <type>\ndata: <json>\n\n`):
+ * Opens an SSE connection that follows the run-event protocol shared by
+ * GET /compare-urls/stream and GET /jobs/:id/stream. The backend emits NAMED
+ * SSE events (`event: <type>\ndata: <json>\n\n`):
  *
  *  - run:start / cell:start / cell:stage / cell:done / cell:error /
  *    summary:update — JSON payload carries a matching `type` field.
+ *  - job:state — job lifecycle transitions (job streams only).
  *  - done — payload is the full {@link StoredRun} (NO `type` field).
  *  - error — payload is {@link StreamErrorPayload} (NO `type` field).
  *
  * The connection is auto-closed on "done" and "error".
  */
-export function startRunStream(
-  config: CompareUrlsRequest,
+function openRunEventSource(
+  url: string,
   handlers: RunStreamHandlers,
 ): RunStreamHandle {
-  const params = new URLSearchParams({ config: JSON.stringify(config) });
-  const source = new EventSource(`/compare-urls/stream?${params.toString()}`);
+  const source = new EventSource(url);
 
   source.onopen = () => handlers.onOpen?.();
+
+  source.addEventListener("job:state", (e) => {
+    try {
+      const event = JSON.parse((e as MessageEvent).data) as JobStateEvent;
+      handlers.onJobState?.(event);
+    } catch (err) {
+      handlers.onError?.(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
 
   const progressTypes: RunProgressEvent["type"][] = [
     "run:start",
@@ -214,6 +252,38 @@ export function startRunStream(
   });
 
   return { close: () => source.close() };
+}
+
+/**
+ * GET /compare-urls/stream — start a one-shot run tied to this connection.
+ * EventSource only supports GET, so the run config is JSON-encoded into a
+ * `config` query parameter. Prefer {@link startJob} + {@link attachJobStream},
+ * which survive disconnects and support concurrent runs.
+ */
+export function startRunStream(
+  config: CompareUrlsRequest,
+  handlers: RunStreamHandlers,
+): RunStreamHandle {
+  const params = new URLSearchParams({ config: JSON.stringify(config) });
+  return openRunEventSource(
+    `/compare-urls/stream?${params.toString()}`,
+    handlers,
+  );
+}
+
+/**
+ * GET /jobs/:id/stream — attach to a job started via {@link startJob}. The
+ * server replays the job's full event history first, so attaching late (or
+ * re-attaching after a reload) still yields a complete picture.
+ */
+export function attachJobStream(
+  jobId: string,
+  handlers: RunStreamHandlers,
+): RunStreamHandle {
+  return openRunEventSource(
+    `/jobs/${encodeURIComponent(jobId)}/stream`,
+    handlers,
+  );
 }
 
 export { ApiError };

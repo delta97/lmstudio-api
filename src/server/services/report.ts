@@ -4,6 +4,21 @@ import type { UrlComparisonItem } from "../types.js";
 
 const SEVERITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 
+/** "$0.0042" — enough precision for per-call vision-model spend. */
+function formatUsd(usd: number): string {
+  if (usd === 0) return "$0.00";
+  if (usd < 0.0001) return "<$0.0001";
+  return `$${usd.toFixed(usd >= 0.1 ? 2 : 4)}`;
+}
+
+function usageLine(it: UrlComparisonItem): string | null {
+  const usage = it.ai?.usage;
+  if (!usage) return null;
+  const cost =
+    typeof usage.costUsd === "number" ? ` (${formatUsd(usage.costUsd)})` : "";
+  return `${usage.totalTokens.toLocaleString("en-US")} tokens${cost}`;
+}
+
 function severityColor(sev: string): string {
   switch (sev.toLowerCase()) {
     case "high":
@@ -86,13 +101,16 @@ function renderItem(it: UrlComparisonItem): string {
     ? ` &middot; <span class="warn">size mismatch</span>`
     : "";
 
+  const usage = usageLine(it);
+  const usageHtml = usage ? ` &middot; AI usage ${escapeHtml(usage)}` : "";
+
   return `
     <section class="card">
       <div class="card-head">
         <h3>${escapeHtml(it.breakpoint)} <span class="dims">${it.width}&times;${it.height}</span></h3>
         ${badge(it.verdict)}
       </div>
-      <div class="meta">Pixel diff ${(it.diffRatio * 100).toFixed(3)}% &middot; decided by ${escapeHtml(it.decidedBy)}${mismatch}</div>
+      <div class="meta">Pixel diff ${(it.diffRatio * 100).toFixed(3)}% &middot; decided by ${escapeHtml(it.decidedBy)}${mismatch}${usageHtml}</div>
       ${summary}
       ${changes}
       ${shots}
@@ -113,6 +131,18 @@ export async function saveReport(
     (n, i) => n + (i.ai?.changes.length ?? 0),
     0,
   );
+  const totalTokens = items.reduce(
+    (n, i) => n + (i.ai?.usage?.totalTokens ?? 0),
+    0,
+  );
+  const totalCost = items.reduce(
+    (n, i) => n + (i.ai?.usage?.costUsd ?? 0),
+    0,
+  );
+  const usageSummary =
+    totalTokens > 0
+      ? `${totalTokens.toLocaleString("en-US")} tokens (${formatUsd(totalCost)})`
+      : null;
 
   // ---- Markdown ----
   const md: string[] = [
@@ -120,7 +150,7 @@ export async function saveReport(
     "",
     `Generated: ${generatedAt}`,
     "",
-    `Comparisons: **${items.length}** | Different: **${different}** | Errors: **${errors}** | Changes flagged: **${totalChanges}**`,
+    `Comparisons: **${items.length}** | Different: **${different}** | Errors: **${errors}** | Changes flagged: **${totalChanges}**${usageSummary ? ` | AI usage: **${usageSummary}**` : ""}`,
     "",
   ];
   for (const g of groups) {
@@ -144,6 +174,8 @@ export async function saveReport(
       if (it.sizeMismatch) md.push(`- Note: baseline/current dimensions differed`);
       if (it.ai) {
         md.push(`- AI: ${it.ai.summary} (confidence ${it.ai.confidence})`);
+        const usage = usageLine(it);
+        if (usage) md.push(`- AI usage: ${usage}`);
         for (const c of [...it.ai.changes].sort(
           (a, b) =>
             (SEVERITY_ORDER[a.severity.toLowerCase()] ?? 9) -
@@ -228,6 +260,7 @@ export async function saveReport(
       <div class="pill"><strong>${different}</strong> different</div>
       <div class="pill"><strong>${errors}</strong> errors</div>
       <div class="pill"><strong>${totalChanges}</strong> changes flagged</div>
+      ${usageSummary ? `<div class="pill"><strong>${escapeHtml(usageSummary)}</strong> AI usage</div>` : ""}
     </div>
   </header>
   <main>

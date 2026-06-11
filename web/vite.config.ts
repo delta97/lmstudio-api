@@ -13,6 +13,7 @@ const BACKEND = "http://localhost:3100";
 const proxyPaths = [
   "/health",
   "/compare-urls",
+  "/jobs",
   "/runs",
   "/reports",
   "/compare",

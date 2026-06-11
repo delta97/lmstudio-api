@@ -46,7 +46,12 @@ import {
   VerdictBadge,
 } from "@/components/status";
 import { sortChangesBySeverity } from "@/lib/status";
-import { formatConfidence, formatRatio } from "@/lib/format";
+import {
+  formatConfidence,
+  formatCost,
+  formatRatio,
+  formatTokens,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { UrlComparisonItem } from "@/lib/types";
 
@@ -451,8 +456,9 @@ export function DiffViewer({
             </div>
           </div>
 
-          {/* Detail panel */}
-          <aside className="flex w-full shrink-0 flex-col gap-3 lg:w-72">
+          {/* Detail panel: full-width below the stage on small screens (capped
+              so the viewer keeps most of the height), fixed sidebar on lg+. */}
+          <aside className="flex w-full shrink-0 flex-col gap-3 max-lg:max-h-[38vh] max-lg:overflow-y-auto lg:w-72">
             {item ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
@@ -469,6 +475,22 @@ export function DiffViewer({
                   />
                   <Metric label="breakpoint" value={item.breakpoint} />
                   <Metric label="size" value={`${item.width}×${item.height}`} />
+                  {item.ai?.usage ? (
+                    <>
+                      <Metric
+                        label="tokens"
+                        value={formatTokens(item.ai.usage.totalTokens)}
+                      />
+                      <Metric
+                        label="ai cost"
+                        value={
+                          typeof item.ai.usage.costUsd === "number"
+                            ? formatCost(item.ai.usage.costUsd)
+                            : "local — free"
+                        }
+                      />
+                    </>
+                  ) : null}
                 </div>
                 {item.sizeMismatch ? (
                   <Badge

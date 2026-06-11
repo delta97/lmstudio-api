@@ -26,6 +26,11 @@ const envSchema = z.object({
   OPENROUTER_MODEL: z.string().min(1).default("google/gemini-2.5-flash"),
 
   PORT: z.coerce.number().int().positive().default(3100),
+  /**
+   * How many comparison jobs may run simultaneously. Each running job owns a
+   * Playwright browser, so this is intentionally small; extra jobs queue.
+   */
+  MAX_CONCURRENT_JOBS: z.coerce.number().int().min(1).max(8).default(2),
   PIXEL_THRESHOLD: z.coerce.number().min(0).max(1).default(0.001),
   MAX_RATIO: z.coerce.number().min(0).max(1).default(0.5),
   PIXEL_MATCH_THRESHOLD: z.coerce.number().min(0).max(1).default(0.1),
@@ -95,6 +100,9 @@ export const config = {
   },
   server: {
     port: env.PORT,
+  },
+  jobs: {
+    maxConcurrent: env.MAX_CONCURRENT_JOBS,
   },
   diff: {
     pixelThreshold: env.PIXEL_THRESHOLD,

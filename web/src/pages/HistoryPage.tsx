@@ -13,7 +13,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { getRun, listRuns } from "@/lib/api";
-import { formatRelative, formatTimestamp } from "@/lib/format";
+import {
+  formatCost,
+  formatRelative,
+  formatTimestamp,
+  formatTokens,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
   Breakpoint,
@@ -232,6 +237,14 @@ function RunRow({
                 className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
               >
                 clean
+              </Badge>
+            ) : null}
+            {(summary.totalTokens ?? 0) > 0 ? (
+              <Badge variant="outline" className="text-muted-foreground">
+                {formatTokens(summary.totalTokens ?? 0)} tok
+                {typeof summary.costUsd === "number"
+                  ? ` · ${formatCost(summary.costUsd)}`
+                  : ""}
               </Badge>
             ) : null}
           </div>

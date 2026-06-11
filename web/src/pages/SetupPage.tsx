@@ -116,7 +116,8 @@ function configToPairRows(config: CompareUrlsRequest): PairRow[] {
 export default function SetupPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setPendingConfig } = useRunStore();
+  const { startJob } = useRunStore();
+  const [starting, setStarting] = useState(false);
 
   // Prefill (from History "re-run") arrives once via router navigation state and
   // seeds the form's initial state — no effect / re-sync needed.
@@ -283,11 +284,22 @@ export default function SetupPage() {
     return config;
   }
 
-  function handleRun() {
+  async function handleRun() {
     const config = buildConfig();
     if (!config) return;
-    setPendingConfig(config);
-    navigate("/run");
+    setStarting(true);
+    try {
+      // The job runs server-side; more comparisons can be started while it
+      // does, and they all stream on the Live Runs screen.
+      await startJob(config);
+      navigate("/run");
+    } catch (err) {
+      toast.error("Could not start comparison", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setStarting(false);
+    }
   }
 
   return (
@@ -712,9 +724,13 @@ export default function SetupPage() {
           </Badge>
           <span className="text-xs">· up to {captureCount} AI reviews</span>
         </div>
-        <Button size="lg" onClick={handleRun} disabled={captureCount === 0}>
+        <Button
+          size="lg"
+          onClick={() => void handleRun()}
+          disabled={captureCount === 0 || starting}
+        >
           <PlayIcon data-icon="inline-start" />
-          Run comparison
+          {starting ? "Starting…" : "Run comparison"}
         </Button>
       </div>
     </div>

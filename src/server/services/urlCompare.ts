@@ -202,6 +202,9 @@ export async function compareUrls(
   let different = 0;
   let errors = 0;
   let changesFlagged = 0;
+  let aiCalls = 0;
+  let totalTokens = 0;
+  let costUsd = 0;
   const emitSummary = (): void => {
     onEvent?.({
       type: "summary:update",
@@ -209,6 +212,9 @@ export async function compareUrls(
       different,
       errors,
       changesFlagged,
+      aiCalls,
+      totalTokens,
+      costUsd,
     });
   };
 
@@ -320,6 +326,11 @@ export async function compareUrls(
 
           if (outcome.verdict === "fail") different++;
           changesFlagged += outcome.ai?.changes.length ?? 0;
+          if (outcome.ai?.usage) {
+            aiCalls++;
+            totalTokens += outcome.ai.usage.totalTokens;
+            costUsd += outcome.ai.usage.costUsd ?? 0;
+          }
 
           const thumbnails: CellThumbnails = {
             baseline: await thumbnail(baseline),

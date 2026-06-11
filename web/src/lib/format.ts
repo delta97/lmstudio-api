@@ -71,6 +71,33 @@ export function formatRelative(generatedAt?: string, id?: string): string {
   return formatTimestamp(generatedAt, id);
 }
 
+/** Formats a USD amount at vision-call magnitudes, e.g. "$0.0042". */
+export function formatCost(usd: number): string {
+  if (!Number.isFinite(usd)) return "—";
+  if (usd === 0) return "$0.00";
+  if (usd < 0.0001) return "<$0.0001";
+  return `$${usd.toFixed(usd >= 0.1 ? 2 : 4)}`;
+}
+
+/** Formats a token count compactly, e.g. 12_345 -> "12.3k". */
+export function formatTokens(tokens: number): string {
+  if (!Number.isFinite(tokens)) return "—";
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k`;
+  return String(tokens);
+}
+
+/** Compact duration for per-stage timings, e.g. "0.8s", "12s", "1m 05s". */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const seconds = ms / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
+}
+
 /** Formats elapsed milliseconds as mm:ss (or h:mm:ss past an hour). */
 export function formatElapsed(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));

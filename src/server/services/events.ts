@@ -95,6 +95,12 @@ export interface SummaryUpdateEvent {
   different: number;
   errors: number;
   changesFlagged: number;
+  /** Cells that needed an AI vision call so far. */
+  aiCalls: number;
+  /** Cumulative LLM tokens consumed by those calls. */
+  totalTokens: number;
+  /** Cumulative provider-reported spend in USD (0 for local providers). */
+  costUsd: number;
 }
 
 /** Discriminated union of every event emitted while a run is in progress. */
