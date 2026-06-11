@@ -1,7 +1,11 @@
 import sharp from "sharp";
 import { config } from "../config.js";
 import type { AiChange, AiVerdict, PixelResult } from "../types.js";
-import { createJsonCompletion, parseJsonLoose, providerLabel } from "./llm.js";
+import {
+  createJsonCompletion,
+  getProviderLabel,
+  parseJsonLoose,
+} from "./llm.js";
 
 const VERDICT_JSON_SCHEMA = {
   name: "visual_regression_verdict",
@@ -203,7 +207,7 @@ export async function triageWithVision(input: TriageInput): Promise<AiVerdict> {
   const parsed = parseJsonLoose(content) as Partial<AiVerdict>;
   if (typeof parsed.regression !== "boolean") {
     throw new Error(
-      `${providerLabel} response did not include a boolean "regression" verdict.`,
+      `${getProviderLabel()} response did not include a boolean "regression" verdict.`,
     );
   }
   return {

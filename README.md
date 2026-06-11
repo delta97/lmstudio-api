@@ -27,7 +27,7 @@ If the model call fails (after `AI_RETRIES` transient retries), the comparison *
 
 ## Prerequisites
 
-- Node.js 18+ (developed against Node 26).
+- Node.js 22.5+ (uses the built-in `node:sqlite` module for UI-saved settings; developed against Node 26).
 - Either a local LM Studio server **or** an OpenRouter API key (see below).
 
 ### Option A: LM Studio (local, default)
@@ -283,9 +283,24 @@ Response: a `summary`, the absolute paths of the written `reportHtml` / `reportM
 
 ### `GET /health`
 
-Returns the active provider (`lmstudio` or `openrouter`), its reachability, the configured model, and the list of available models.
+Returns the active provider (`lmstudio` or `openrouter`), its reachability, the configured model, the list of available models, and which configuration layer is active (`source`: `database`, `env`, or `default`).
+
+### Settings (`GET /settings`, `PUT /settings/llm`, `DELETE /settings/llm`)
+
+The web UI's **Settings** page lets you pick the AI backend, enter an OpenRouter API key, and choose the model. Saved settings persist in a SQLite database (`data/settings.db`, created on first save) and survive restarts.
+
+- `GET /settings` — the effective LLM settings, which layer they came from, and what each layer defines (the API key is only ever returned masked).
+- `PUT /settings/llm` — save `{ provider, openrouterApiKey?, openrouterModel? }`. Omitted fields keep their current value, so you can switch models without re-entering the key.
+- `DELETE /settings/llm` — clear saved settings, reverting to `.env` / defaults.
+- `GET /settings/openrouter/models` — vision-capable models from the OpenRouter catalog (used for the model picker's autocomplete).
 
 ## Configuration (`.env`)
+
+Settings are resolved in priority order:
+
+1. **UI-saved settings** (`data/settings.db`) — anything saved from the Settings page wins.
+2. **Environment / `.env`** — an explicit `LLM_PROVIDER` wins; otherwise defining `OPENROUTER_API_KEY` (or `OPENROUTER_MODEL`) selects OpenRouter.
+3. **Default** — a locally running LM Studio model.
 
 | Variable | Default | Description |
 | --- | --- | --- |

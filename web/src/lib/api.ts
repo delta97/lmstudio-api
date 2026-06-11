@@ -18,10 +18,13 @@ import type {
   HealthResponse,
   JobSnapshot,
   JobStateEvent,
+  LlmSettingsUpdate,
+  OpenRouterModel,
   RunListItem,
   RunPhaseEvent,
   RunProgressEvent,
   RunStartEvent,
+  SettingsResponse,
   StoredRun,
   StreamErrorPayload,
   SummaryUpdateEvent,
@@ -55,6 +58,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /** GET /health — LM Studio reachability + loaded models. */
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
+}
+
+// ---- Settings (GET /settings, PUT /settings/llm, DELETE /settings/llm) ----
+
+/** GET /settings — effective LLM settings and which layer they came from. */
+export function getSettings(): Promise<SettingsResponse> {
+  return request<SettingsResponse>("/settings");
+}
+
+/**
+ * PUT /settings/llm — persist provider / OpenRouter key & model in the
+ * server-side database. Saved settings win over the server's .env file.
+ */
+export function updateLlmSettings(
+  update: LlmSettingsUpdate,
+): Promise<SettingsResponse> {
+  return request<SettingsResponse>("/settings/llm", {
+    method: "PUT",
+    body: JSON.stringify(update),
+  });
+}
+
+/** DELETE /settings/llm — clear saved settings, reverting to .env/defaults. */
+export function resetLlmSettings(): Promise<SettingsResponse> {
+  return request<SettingsResponse>("/settings/llm", { method: "DELETE" });
+}
+
+/** GET /settings/openrouter/models — vision-capable OpenRouter catalog. */
+export async function listOpenRouterModels(): Promise<OpenRouterModel[]> {
+  const data = await request<{ models: OpenRouterModel[] }>(
+    "/settings/openrouter/models",
+  );
+  return data.models;
 }
 
 /**

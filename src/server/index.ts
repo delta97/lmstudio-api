@@ -6,7 +6,9 @@ import { compareUrlsRouter } from "./routes/compareUrls.js";
 import { healthRouter } from "./routes/health.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { runsRouter } from "./routes/runs.js";
-import { providerLabel, warmModel } from "./services/llm.js";
+import { settingsRouter } from "./routes/settings.js";
+import { getProviderLabel, warmModel } from "./services/llm.js";
+import { getLlmConfig } from "./services/llmConfig.js";
 import { REPORTS_DIR } from "./services/runStore.js";
 
 const app = express();
@@ -15,7 +17,7 @@ const app = express();
 // these endpoints directly even when not proxied.
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type");
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
@@ -35,8 +37,10 @@ app.use(compareRouter);
 app.use(compareUrlsRouter);
 app.use(jobsRouter);
 app.use(runsRouter);
+app.use(settingsRouter);
 
 app.get("/", (_req, res) => {
+  const llm = getLlmConfig();
   res.json({
     name: "lmstudio-visual-regression",
     endpoints: [
@@ -51,15 +55,28 @@ app.get("/", (_req, res) => {
       "GET /runs",
       "GET /runs/:id",
       "GET /reports/<id>/...",
+      "GET /settings",
+      "PUT /settings/llm",
+      "DELETE /settings/llm",
+      "GET /settings/openrouter/models",
     ],
-    provider: config.llm.provider,
-    llmBaseUrl: config.llm.baseUrl,
-    model: config.llm.model,
+    provider: llm.provider,
+    llmBaseUrl: llm.baseUrl,
+    model: llm.model,
+    settingsSource: llm.source,
   });
 });
 
 async function start(): Promise<void> {
-  if (config.warmModelOnStart && config.llm.provider === "lmstudio") {
+  const llm = getLlmConfig();
+
+  if (llm.provider === "openrouter" && !llm.apiKey) {
+    console.warn(
+      "OpenRouter is the active provider but no API key is configured — model calls will fail until one is saved in Settings or set via OPENROUTER_API_KEY.",
+    );
+  }
+
+  if (config.warmModelOnStart && llm.provider === "lmstudio") {
     try {
       console.log(`Warming model "${config.lmStudio.model}"...`);
       await warmModel();
@@ -75,8 +92,10 @@ async function start(): Promise<void> {
     console.log(
       `Visual regression server listening on http://localhost:${config.server.port}`,
     );
-    console.log(`  Provider:  ${providerLabel} (${config.llm.baseUrl})`);
-    console.log(`  Model:     ${config.llm.model}`);
+    console.log(
+      `  Provider:  ${getProviderLabel()} (${llm.baseUrl}) [from ${llm.source}]`,
+    );
+    console.log(`  Model:     ${llm.model}`);
     console.log(
       `  Thresholds: pass<=${config.diff.pixelThreshold}, fail>=${config.diff.maxRatio}`,
     );

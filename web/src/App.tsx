@@ -5,6 +5,7 @@ import SetupPage from "@/pages/SetupPage";
 import LiveRunPage from "@/pages/LiveRunPage";
 import ResultsPage from "@/pages/ResultsPage";
 import HistoryPage from "@/pages/HistoryPage";
+import SettingsPage from "@/pages/SettingsPage";
 import NotFoundPage from "@/pages/NotFoundPage";
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="results" element={<ResultsPage />} />
             <Route path="results/:runId" element={<ResultsPage />} />
             <Route path="history" element={<HistoryPage />} />
+            <Route path="settings" element={<SettingsPage />} />
             <Route path="404" element={<NotFoundPage />} />
             <Route path="*" element={<Navigate to="/404" replace />} />
           </Route>

@@ -6,35 +6,62 @@ import type {
 } from "openai/resources/chat/completions";
 import { config } from "../config.js";
 import type { LlmUsage } from "../types.js";
+import {
+  getLlmConfig,
+  type LlmConfigSource,
+  type LlmProvider,
+  type ResolvedLlmConfig,
+} from "./llmConfig.js";
 
 /**
  * Provider-agnostic LLM access. The rest of the pipeline talks to this module
  * and works the same whether the vision model is served by a local LM Studio
- * instance or by OpenRouter (LLM_PROVIDER=openrouter).
+ * instance or by OpenRouter.
+ *
+ * The active backend is resolved per call via getLlmConfig() (saved settings >
+ * environment > local default), so settings changed from the UI take effect
+ * without a server restart.
  */
 
-export type LlmProvider = "lmstudio" | "openrouter";
+export type { LlmProvider } from "./llmConfig.js";
 
-export const provider: LlmProvider = config.llm.provider;
+export function getProvider(): LlmProvider {
+  return getLlmConfig().provider;
+}
 
-export const providerLabel =
-  provider === "openrouter" ? "OpenRouter" : "LM Studio";
+export function getProviderLabel(): string {
+  return getProvider() === "openrouter" ? "OpenRouter" : "LM Studio";
+}
 
-export const llmClient = new OpenAI({
-  baseURL: config.llm.baseUrl,
-  // LM Studio ignores the key unless auth is enabled; OpenRouter requires one.
-  apiKey: config.llm.apiKey || "lm-studio",
-  // OpenRouter uses these optional headers for app attribution / rankings.
-  defaultHeaders:
-    provider === "openrouter"
-      ? {
-          "HTTP-Referer": "https://github.com/delta97/lmstudio-api",
-          "X-Title": "Visual QA Regression Pipeline",
-        }
-      : undefined,
-  // Retries (with structured-output fallback) are handled in createJsonCompletion.
-  maxRetries: 0,
-});
+let clientConfig: ResolvedLlmConfig | null = null;
+let client: OpenAI | null = null;
+
+/**
+ * OpenAI-compatible client for the active backend. Rebuilt automatically when
+ * the resolved settings change (invalidateLlmConfig() yields a new object).
+ */
+export function getLlmClient(): OpenAI {
+  const llm = getLlmConfig();
+  if (!client || clientConfig !== llm) {
+    clientConfig = llm;
+    client = new OpenAI({
+      baseURL: llm.baseUrl,
+      // LM Studio ignores the key unless auth is enabled; OpenRouter requires one.
+      apiKey: llm.apiKey || "lm-studio",
+      // OpenRouter uses these optional headers for app attribution / rankings.
+      defaultHeaders:
+        llm.provider === "openrouter"
+          ? {
+              "HTTP-Referer": "https://github.com/delta97/lmstudio-api",
+              "X-Title": "Visual QA Regression Pipeline",
+            }
+          : undefined,
+      // Retries (with structured-output fallback) are handled in createJsonCompletion.
+      maxRetries: 0,
+    });
+  }
+  return client;
+}
 
 export interface JsonSchemaSpec {
   name: string;
@@ -88,7 +115,10 @@ export interface JsonCompletionResult {
  * asks for usage accounting (`usage: { include: true }`). The OpenAI SDK types
  * don't know about either extension, so both are typed loosely here.
  */
-function extractUsage(completion: ChatCompletion): LlmUsage | undefined {
+function extractUsage(
+  completion: ChatCompletion,
+  configuredModel: string,
+): LlmUsage | undefined {
   const usage = completion.usage as
     | (NonNullable<ChatCompletion["usage"]> & { cost?: unknown })
     | undefined;
@@ -98,7 +128,7 @@ function extractUsage(completion: ChatCompletion): LlmUsage | undefined {
     completionTokens: usage.completion_tokens ?? 0,
     totalTokens: usage.total_tokens ?? 0,
     ...(typeof usage.cost === "number" ? { costUsd: usage.cost } : {}),
-    model: completion.model || config.llm.model,
+    model: completion.model || configuredModel,
   };
 }
 
@@ -113,6 +143,7 @@ function extractUsage(completion: ChatCompletion): LlmUsage | undefined {
 export async function createJsonCompletion(
   opts: JsonCompletionOptions,
 ): Promise<JsonCompletionResult> {
+  const llm = getLlmConfig();
   const formats: Array<
     ChatCompletionCreateParamsNonStreaming["response_format"]
   > = [
@@ -127,21 +158,23 @@ export async function createJsonCompletion(
     for (let attempt = 0; attempt <= config.llm.retries; attempt++) {
       try {
         const params: ChatCompletionCreateParamsNonStreaming = {
-          model: opts.model ?? config.llm.model,
+          model: opts.model ?? llm.model,
           temperature: opts.temperature ?? 0,
           messages: opts.messages,
           ...(responseFormat ? { response_format: responseFormat } : {}),
           // Ask OpenRouter to report the metered cost alongside token counts.
-          ...(provider === "openrouter"
+          ...(llm.provider === "openrouter"
             ? ({ usage: { include: true } } as object)
             : {}),
         };
-        const completion = await llmClient.chat.completions.create(params);
+        const completion = await getLlmClient().chat.completions.create(
+          params,
+        );
         const content = completion.choices[0]?.message?.content;
         if (!content) {
-          throw new Error(`${providerLabel} returned an empty response.`);
+          throw new Error(`${getProviderLabel()} returned an empty response.`);
         }
-        return { content, usage: extractUsage(completion) };
+        return { content, usage: extractUsage(completion, llm.model) };
       } catch (err) {
         lastError = err;
         if (isFormatError(err)) break; // move on to the next, looser format
@@ -193,6 +226,8 @@ export interface LlmHealth {
   reachable: boolean;
   baseUrl: string;
   configuredModel: string;
+  /** Which configuration layer is active: database (UI), env, or default. */
+  source: LlmConfigSource;
   /**
    * LM Studio: the configured model is loaded. OpenRouter: the configured
    * model id exists in the catalog (and the API key was accepted).
@@ -202,12 +237,12 @@ export interface LlmHealth {
   error?: string;
 }
 
-async function checkOpenRouterKey(): Promise<string | null> {
-  if (!config.llm.apiKey) {
-    return "OPENROUTER_API_KEY is not set.";
+async function checkOpenRouterKey(llm: ResolvedLlmConfig): Promise<string | null> {
+  if (!llm.apiKey) {
+    return "No OpenRouter API key is configured (set one in Settings or via OPENROUTER_API_KEY).";
   }
-  const res = await fetch(`${config.llm.baseUrl.replace(/\/$/, "")}/key`, {
-    headers: { Authorization: `Bearer ${config.llm.apiKey}` },
+  const res = await fetch(`${llm.baseUrl.replace(/\/$/, "")}/key`, {
+    headers: { Authorization: `Bearer ${llm.apiKey}` },
   });
   if (!res.ok) {
     return `OpenRouter rejected the API key (HTTP ${res.status}).`;
@@ -216,14 +251,16 @@ async function checkOpenRouterKey(): Promise<string | null> {
 }
 
 export async function checkHealth(): Promise<LlmHealth> {
+  const llm = getLlmConfig();
   const base = {
-    provider,
-    baseUrl: config.llm.baseUrl,
-    configuredModel: config.llm.model,
+    provider: llm.provider,
+    baseUrl: llm.baseUrl,
+    configuredModel: llm.model,
+    source: llm.source,
   };
   try {
-    if (provider === "openrouter") {
-      const keyError = await checkOpenRouterKey();
+    if (llm.provider === "openrouter") {
+      const keyError = await checkOpenRouterKey(llm);
       if (keyError) {
         return {
           ...base,
@@ -234,12 +271,12 @@ export async function checkHealth(): Promise<LlmHealth> {
         };
       }
     }
-    const models = await llmClient.models.list();
+    const models = await getLlmClient().models.list();
     const ids = models.data.map((m) => m.id);
     return {
       ...base,
       reachable: true,
-      modelLoaded: ids.includes(config.llm.model),
+      modelLoaded: ids.includes(llm.model),
       availableModels: ids,
     };
   } catch (err) {
@@ -258,7 +295,7 @@ export async function checkHealth(): Promise<LlmHealth> {
  * No-op for hosted providers, which have no concept of loading a model.
  */
 export async function warmModel(): Promise<void> {
-  if (provider !== "lmstudio") return;
+  if (getProvider() !== "lmstudio") return;
   const url = `${config.lmStudio.nativeApiBase}/models/load`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

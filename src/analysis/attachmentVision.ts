@@ -1,9 +1,9 @@
-import { config } from "../server/config.js";
 import {
   createJsonCompletion,
+  getProviderLabel,
   parseJsonLoose,
-  providerLabel,
 } from "../server/services/llm.js";
+import { getLlmConfig } from "../server/services/llmConfig.js";
 
 /**
  * Standalone vision-analysis helper for arbitrary image attachments.
@@ -16,11 +16,11 @@ import {
  */
 
 /** Default vision model for attachment analysis. Override with ANALYZE_MODEL. */
-export const DEFAULT_ANALYSIS_MODEL =
-  process.env.ANALYZE_MODEL ||
-  (config.llm.provider === "openrouter"
-    ? config.llm.model
-    : "google/gemma-4-12b");
+export function getDefaultAnalysisModel(): string {
+  if (process.env.ANALYZE_MODEL) return process.env.ANALYZE_MODEL;
+  const llm = getLlmConfig();
+  return llm.provider === "openrouter" ? llm.model : "google/gemma-4-12b";
+}
 
 export interface ImageAnalysis {
   summary: string;
@@ -117,7 +117,7 @@ export async function analyzeImage(
   mimeType: "image/jpeg" | "image/png",
   opts: AnalyzeOptions = {},
 ): Promise<ImageAnalysis> {
-  const model = opts.model || DEFAULT_ANALYSIS_MODEL;
+  const model = opts.model || getDefaultAnalysisModel();
   const dataUrl = `data:${mimeType};base64,${jpegOrPng.toString("base64")}`;
 
   const userText = [
@@ -143,7 +143,7 @@ export async function analyzeImage(
     ],
   });
   if (!content) {
-    throw new Error(`${providerLabel} returned an empty response.`);
+    throw new Error(`${getProviderLabel()} returned an empty response.`);
   }
 
   const parsed = parseJsonLoose(content) as Partial<ImageAnalysis>;

@@ -62,10 +62,10 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
-if (env.LLM_PROVIDER === "openrouter" && !env.OPENROUTER_API_KEY) {
-  console.warn(
-    "LLM_PROVIDER=openrouter but OPENROUTER_API_KEY is not set — model calls will fail until a key is provided.",
-  );
+/** True when the variable is defined (non-empty) in the environment / .env. */
+function envDefined(name: string): boolean {
+  const value = process.env[name];
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 /**
@@ -78,18 +78,33 @@ function deriveNativeApiBase(openAiBaseUrl: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-const isOpenRouter = env.LLM_PROVIDER === "openrouter";
-
 export const config = {
-  /** Active LLM backend, resolved from LLM_PROVIDER. */
+  /** Tuning shared by both LLM backends. */
   llm: {
-    provider: env.LLM_PROVIDER,
-    baseUrl: isOpenRouter ? env.OPENROUTER_BASE_URL : env.LMSTUDIO_BASE_URL,
-    model: isOpenRouter ? env.OPENROUTER_MODEL : env.LMSTUDIO_MODEL,
-    apiKey: isOpenRouter ? env.OPENROUTER_API_KEY : env.LMSTUDIO_API_TOKEN,
     maxImageDim: env.AI_MAX_IMAGE_DIM,
     retries: env.AI_RETRIES,
     reviewConfidence: env.AI_REVIEW_CONFIDENCE,
+  },
+  /**
+   * Raw per-backend settings from the environment. The ACTIVE backend is
+   * resolved per request by services/llmConfig.ts, which layers settings
+   * saved from the UI (SQLite) on top of these.
+   */
+  llmEnv: {
+    /** LLM_PROVIDER, but only when explicitly set in the environment. */
+    provider: envDefined("LLM_PROVIDER") ? env.LLM_PROVIDER : undefined,
+    lmstudio: {
+      baseUrl: env.LMSTUDIO_BASE_URL,
+      model: env.LMSTUDIO_MODEL,
+      apiToken: env.LMSTUDIO_API_TOKEN,
+    },
+    openrouter: {
+      baseUrl: env.OPENROUTER_BASE_URL,
+      apiKey: env.OPENROUTER_API_KEY,
+      model: env.OPENROUTER_MODEL,
+      /** True when OPENROUTER_MODEL is set in the environment (vs. default). */
+      modelExplicit: envDefined("OPENROUTER_MODEL"),
+    },
   },
   /** LM Studio-specific settings (native API for model warm-up). */
   lmStudio: {

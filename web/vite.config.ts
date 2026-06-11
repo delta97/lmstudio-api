@@ -17,6 +17,7 @@ const proxyPaths = [
   "/runs",
   "/reports",
   "/compare",
+  "/settings",
 ];
 
 export default defineConfig({
