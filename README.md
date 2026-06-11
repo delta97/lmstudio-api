@@ -1,12 +1,12 @@
 # LM Studio Visual Regression Pipeline
 
-A local visual regression testing pipeline for Playwright, backed by a vision model running in [LM Studio](https://lmstudio.ai/docs/developer/rest).
+A visual regression testing pipeline for Playwright, backed by a vision model served either locally by [LM Studio](https://lmstudio.ai/docs/developer/rest) or remotely via [OpenRouter](https://openrouter.ai) (`LLM_PROVIDER=openrouter`).
 
-> **New here? Start with the [Quickstart](./QUICKSTART.md)** — it walks through installing LM Studio (macOS/Windows), downloading the Gemma-4-12B vision model, and running everything end to end.
+> **New here? Start with the [Quickstart](./QUICKSTART.md)** — it walks through installing LM Studio (macOS/Windows), downloading the Gemma-4-12B vision model, and running everything end to end. Prefer a hosted model? See [Using OpenRouter](#using-openrouter-hosted-models) below — no local model required.
 
 It has two parts:
 
-1. A stateless **comparison server** (Node/TypeScript + Express) that wraps the LM Studio API and exposes `POST /compare`.
+1. A stateless **comparison server** (Node/TypeScript + Express) that wraps the vision-model API and exposes `POST /compare`.
 2. A **Playwright client helper** (`expectVisualMatch`) that captures screenshots, manages baselines, calls the server, and asserts the verdict — attaching the baseline, current, diff, and AI reasoning to the Playwright HTML report.
 
 ## How it decides pass/fail (hybrid)
@@ -19,13 +19,19 @@ diffRatio >= MAX_RATIO         ->  FAIL instantly        (no model call)
 in between                     ->  vision model triages  (regression vs. noise)
 ```
 
-The vision model receives the baseline, the current screenshot, and the diff overlay, then returns a structured JSON verdict (`regression`, `confidence`, `summary`, `changes[]`) via LM Studio's [structured output](https://lmstudio.ai/docs/developer/openai-compat/structured-output). This filters out acceptable noise (anti-aliasing, sub-pixel font hinting, dynamic timestamps) while catching real regressions (moved/missing elements, color/layout/text changes).
+The vision model receives the baseline, the current screenshot, the diff overlay, and the bounding boxes of the changed-pixel clusters (so it knows exactly where to look), then returns a structured JSON verdict (`regression`, `confidence`, `summary`, `changes[]`) via [structured output](https://lmstudio.ai/docs/developer/openai-compat/structured-output). If the model or provider does not support JSON-schema response formats, the server automatically falls back to `json_object` and then to lenient JSON parsing. This filters out acceptable noise (anti-aliasing, sub-pixel font hinting, dynamic timestamps) while catching real regressions (moved/missing elements, color/layout/text changes).
 
-If the model call fails, the comparison **fails closed** (`needsReview: true`) rather than silently passing.
+Oversized screenshots are downscaled (longest edge `AI_MAX_IMAGE_DIM`, default 2048px) before being sent to the model, so every provider sees a predictable, legible input instead of applying its own resampling.
+
+If the model call fails (after `AI_RETRIES` transient retries), the comparison **fails closed** (`needsReview: true`) rather than silently passing. AI verdicts that come back with confidence below `AI_REVIEW_CONFIDENCE` are also flagged `needsReview: true`, so borderline calls get a human in the loop.
 
 ## Prerequisites
 
 - Node.js 18+ (developed against Node 26).
+- Either a local LM Studio server **or** an OpenRouter API key (see below).
+
+### Option A: LM Studio (local, default)
+
 - [LM Studio](https://lmstudio.ai) running locally with the server on (`lms server start`, default `http://localhost:1234`).
 - A **vision-capable** model loaded. Small models (<7B) are unreliable for structured output, so prefer a capable VLM:
 
@@ -35,6 +41,25 @@ lms server start
 ```
 
 Any multimodal model that supports structured output works (e.g. `qwen/qwen3-vl-*`, `google/gemma-4-12b`). Set it via `LMSTUDIO_MODEL`.
+
+### Option B: Using OpenRouter (hosted models)
+
+Skip the local model entirely and run AI triage on any vision-capable model in the [OpenRouter catalog](https://openrouter.ai/models?modality=image-%3Etext):
+
+```bash
+# .env
+LLM_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...          # https://openrouter.ai/keys
+OPENROUTER_MODEL=google/gemini-2.5-flash
+```
+
+Notes:
+
+- Any vision-capable slug works, e.g. `google/gemini-2.5-flash` (fast/cheap), `anthropic/claude-sonnet-4.5` (highest accuracy), `qwen/qwen3-vl-235b-a22b-instruct`.
+- The server tries JSON-schema structured output first and falls back automatically for models that don't support it.
+- `GET /health` validates your API key and confirms the model slug exists in the catalog.
+- `WARM_MODEL_ON_START` is ignored (there is nothing to load).
+- Screenshots are uploaded to OpenRouter for analysis — keep `LLM_PROVIDER=lmstudio` if your UIs must not leave the machine.
 
 ## Setup
 
@@ -51,11 +76,11 @@ npm run dev      # watch mode (tsx)
 # or
 npm start
 
-# Verify it can reach LM Studio:
+# Verify it can reach the configured provider (LM Studio or OpenRouter):
 curl http://localhost:3100/health
 ```
 
-`GET /health` reports whether LM Studio is reachable, the configured model, and whether it is loaded.
+`GET /health` reports the active provider, whether it is reachable, the configured model, and whether the model is loaded (LM Studio) / available in the catalog with a valid key (OpenRouter).
 
 ## Smoke test
 
@@ -218,7 +243,7 @@ Response:
   "verdict": "pass",
   "decidedBy": "pixel-pass",
   "needsReview": false,
-  "pixel": { "diffPixels": 0, "totalPixels": 60480, "diffRatio": 0, "width": 360, "height": 168, "sizeMismatch": false },
+  "pixel": { "diffPixels": 0, "totalPixels": 60480, "diffRatio": 0, "width": 360, "height": 168, "sizeMismatch": false, "diffRegions": [] },
   "ai": null,
   "diffPng": "<base64 PNG>",
   "name": "homepage"
@@ -258,19 +283,26 @@ Response: a `summary`, the absolute paths of the written `reportHtml` / `reportM
 
 ### `GET /health`
 
-Returns LM Studio reachability and the list of available models.
+Returns the active provider (`lmstudio` or `openrouter`), its reachability, the configured model, and the list of available models.
 
 ## Configuration (`.env`)
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `LLM_PROVIDER` | `lmstudio` | AI backend: `lmstudio` (local) or `openrouter` (hosted) |
 | `LMSTUDIO_BASE_URL` | `http://localhost:1234/v1` | OpenAI-compatible base URL (keep the `/v1`) |
-| `LMSTUDIO_MODEL` | `google/gemma-4-12b` | Vision model identifier |
+| `LMSTUDIO_MODEL` | `qwen/qwen3-vl-4b` | Vision model identifier (LM Studio) |
 | `LMSTUDIO_API_TOKEN` | _(empty)_ | Bearer token if you enabled auth in LM Studio |
+| `OPENROUTER_API_KEY` | _(empty)_ | OpenRouter API key (required when `LLM_PROVIDER=openrouter`) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
+| `OPENROUTER_MODEL` | `google/gemini-2.5-flash` | Vision model slug (OpenRouter) |
 | `PORT` | `3100` | Comparison server port |
 | `PIXEL_THRESHOLD` | `0.001` | `diffRatio` at/below which it passes instantly |
 | `MAX_RATIO` | `0.5` | `diffRatio` at/above which it fails instantly |
 | `PIXEL_MATCH_THRESHOLD` | `0.1` | pixelmatch per-pixel sensitivity (lower = stricter) |
+| `AI_MAX_IMAGE_DIM` | `2048` | Longest image edge sent to the model (`0` = no downscaling) |
+| `AI_RETRIES` | `2` | Retries for transient model-call failures |
+| `AI_REVIEW_CONFIDENCE` | `0.6` | AI verdicts below this confidence are flagged `needsReview` |
 | `WARM_MODEL_ON_START` | `false` | Load the model via LM Studio's native API on startup |
 | `COMPARE_SERVER_URL` | `http://localhost:3100` | Client: where to send comparisons |
 | `UPDATE_BASELINES` | _(empty)_ | Client: `1` to (re)write baselines |
@@ -284,8 +316,9 @@ src/server/
   types.ts              request/response/verdict types
   routes/compare.ts     POST /compare
   routes/health.ts      GET /health
-  services/pixelDiff.ts sharp normalize + pixelmatch + diff PNG
-  services/lmstudio.ts  OpenAI SDK -> LM Studio vision triage (structured output)
+  services/pixelDiff.ts sharp normalize + pixelmatch + diff PNG + region clustering
+  services/llm.ts       provider-agnostic client (LM Studio / OpenRouter) + JSON fallback + retries
+  services/visionTriage.ts vision triage prompt + structured verdict
   services/verdict.ts   hybrid pass/fail logic
 client/
   visualMatch.ts        Playwright helper (expectVisualMatch)

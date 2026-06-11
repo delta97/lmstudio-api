@@ -1,6 +1,7 @@
 /**
- * LM Studio health indicator. Polls GET /health and shows reachability + whether
- * the configured vision model is loaded. Warns when the model is not loaded.
+ * LLM backend health indicator. Polls GET /health and shows reachability +
+ * whether the configured vision model is available (loaded in LM Studio, or
+ * present in the OpenRouter catalog). Warns when the model is not available.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -61,7 +62,7 @@ export function HealthChip() {
     return (
       <Badge variant="outline" className="gap-1.5">
         <Spinner className="size-3" />
-        Checking LM Studio…
+        Checking AI backend…
       </Badge>
     );
   }
@@ -78,16 +79,19 @@ export function HealthChip() {
           }
         >
           <CircleSlashIcon data-icon="inline-start" />
-          LM Studio unreachable
+          AI backend unreachable
         </TooltipTrigger>
         <TooltipContent>{state.message}</TooltipContent>
       </Tooltip>
     );
   }
 
-  const { lmStudio } = state.health;
-  const reachable = lmStudio.reachable;
-  const modelLoaded = lmStudio.modelLoaded;
+  // `llm` is the current key; fall back to `lmStudio` for older servers.
+  const llm = state.health.llm ?? state.health.lmStudio;
+  const providerName =
+    llm.provider === "openrouter" ? "OpenRouter" : "LM Studio";
+  const reachable = llm.reachable;
+  const modelLoaded = llm.modelLoaded;
 
   const tone = !reachable
     ? "border-destructive/30 bg-destructive/10 text-destructive"
@@ -102,10 +106,10 @@ export function HealthChip() {
       : CircleAlertIcon;
 
   const label = !reachable
-    ? "LM Studio unreachable"
+    ? `${providerName} unreachable`
     : modelLoaded
-      ? "Model loaded"
-      : "Model not loaded";
+      ? "Model available"
+      : "Model not available";
 
   return (
     <Tooltip>
@@ -117,21 +121,25 @@ export function HealthChip() {
       </TooltipTrigger>
       <TooltipContent className="max-w-xs">
         <div className="flex flex-col gap-1 text-left">
-          <span className="font-mono text-[0.7rem]">{lmStudio.baseUrl}</span>
+          <span className="font-mono text-[0.7rem]">{llm.baseUrl}</span>
           <span>
             Configured model:{" "}
-            <span className="font-mono">{lmStudio.configuredModel}</span>
+            <span className="font-mono">{llm.configuredModel}</span>
           </span>
           {!modelLoaded && reachable ? (
             <span>
-              The configured vision model is not loaded — load it in LM Studio
-              for AI triage to work.
+              {llm.provider === "openrouter"
+                ? "The configured model id was not found in the OpenRouter catalog — check OPENROUTER_MODEL."
+                : "The configured vision model is not loaded — load it in LM Studio for AI triage to work."}
             </span>
           ) : null}
-          {lmStudio.availableModels.length > 0 ? (
+          {llm.error ? (
+            <span className="text-destructive">{llm.error}</span>
+          ) : null}
+          {llm.availableModels.length > 0 ? (
             <span className="text-muted-foreground">
-              {lmStudio.availableModels.length} model
-              {lmStudio.availableModels.length === 1 ? "" : "s"} available
+              {llm.availableModels.length} model
+              {llm.availableModels.length === 1 ? "" : "s"} available
             </span>
           ) : null}
         </div>

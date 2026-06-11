@@ -1,24 +1,26 @@
-import OpenAI from "openai";
 import { config } from "../server/config.js";
+import {
+  createJsonCompletion,
+  parseJsonLoose,
+  providerLabel,
+} from "../server/services/llm.js";
 
 /**
  * Standalone vision-analysis helper for arbitrary image attachments.
  *
- * This is intentionally separate from `src/server/services/lmstudio.ts` (which
- * is purpose-built for 3-image visual-regression triage). It reuses the same
- * LM Studio connection settings (base URL + optional token) but lets callers
- * pick any vision model — defaulting to gemma — without touching the server's
- * configured regression model.
+ * This is intentionally separate from `src/server/services/visionTriage.ts`
+ * (which is purpose-built for 3-image visual-regression triage). It shares the
+ * same provider-agnostic LLM client (LM Studio or OpenRouter) but lets callers
+ * pick any vision model without touching the server's configured regression
+ * model.
  */
-
-const client = new OpenAI({
-  baseURL: config.lmStudio.baseUrl,
-  apiKey: config.lmStudio.apiToken || "lm-studio",
-});
 
 /** Default vision model for attachment analysis. Override with ANALYZE_MODEL. */
 export const DEFAULT_ANALYSIS_MODEL =
-  process.env.ANALYZE_MODEL || "google/gemma-4-12b";
+  process.env.ANALYZE_MODEL ||
+  (config.llm.provider === "openrouter"
+    ? config.llm.model
+    : "google/gemma-4-12b");
 
 export interface ImageAnalysis {
   summary: string;
@@ -94,45 +96,21 @@ photo, screenshot, meme, document, or a frame extracted from a video/GIF).
 Describe it objectively and transcribe any visible text exactly.
 Respond ONLY with JSON matching the provided schema. Do not add commentary.`;
 
-/** Strip code fences / prose and parse the first JSON object found. */
-function parseJsonLoose(content: string): unknown {
-  const trimmed = content.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // fall through to fenced / embedded extraction
-  }
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) {
-    try {
-      return JSON.parse(fenced[1].trim());
-    } catch {
-      // fall through
-    }
-  }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return JSON.parse(trimmed.slice(start, end + 1));
-  }
-  throw new Error("Could not parse JSON from model response.");
-}
-
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === "string");
 }
 
 export interface AnalyzeOptions {
-  /** Vision model id loaded in LM Studio. */
+  /** Vision model id (LM Studio model or OpenRouter model slug). */
   model?: string;
   /** Extra context appended to the user prompt (e.g. sender, date, caption). */
   context?: string;
 }
 
 /**
- * Analyze a single image (as a JPEG/PNG buffer) with a vision model in LM Studio.
- * Returns a normalized {@link ImageAnalysis}.
+ * Analyze a single image (as a JPEG/PNG buffer) with the configured vision
+ * provider. Returns a normalized {@link ImageAnalysis}.
  */
 export async function analyzeImage(
   jpegOrPng: Buffer,
@@ -149,9 +127,10 @@ export async function analyzeImage(
     .filter(Boolean)
     .join("\n");
 
-  const completion = await client.chat.completions.create({
+  const content = await createJsonCompletion({
     model,
     temperature: 0,
+    schema: ANALYSIS_JSON_SCHEMA,
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       {
@@ -162,15 +141,9 @@ export async function analyzeImage(
         ],
       },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: ANALYSIS_JSON_SCHEMA,
-    },
   });
-
-  const content = completion.choices[0]?.message?.content;
   if (!content) {
-    throw new Error("LM Studio returned an empty response.");
+    throw new Error(`${providerLabel} returned an empty response.`);
   }
 
   const parsed = parseJsonLoose(content) as Partial<ImageAnalysis>;

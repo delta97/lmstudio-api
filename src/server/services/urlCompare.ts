@@ -18,7 +18,7 @@ import {
 } from "./capture.js";
 import type { CellThumbnails, CompareEventHandler } from "./events.js";
 import { comparePixels } from "./pixelDiff.js";
-import { triageWithVision } from "./lmstudio.js";
+import { triageWithVision } from "./visionTriage.js";
 
 export interface RawComparison {
   item: Omit<UrlComparisonItem, "images">;
@@ -148,14 +148,15 @@ async function diffAndTriage(
       baselinePng: baseline.toString("base64"),
       currentPng: current.toString("base64"),
       diffPng: diffPngBase64,
-      diffRatio: pixel.diffRatio,
+      pixel,
       context,
     });
     return {
       ...common,
       verdict: ai.regression ? "fail" : "pass",
       decidedBy: "ai",
-      needsReview: false,
+      // Borderline AI calls get a human in the loop instead of blind trust.
+      needsReview: ai.confidence < config.llm.reviewConfidence,
       ai,
     };
   } catch (err) {

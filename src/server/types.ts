@@ -23,6 +23,16 @@ export const compareRequestSchema = z.object({
 });
 export type CompareRequest = z.infer<typeof compareRequestSchema>;
 
+/** Approximate bounding box of a cluster of changed pixels. */
+export interface DiffRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Number of changed pixels inside this cluster. */
+  diffPixels: number;
+}
+
 export interface PixelResult {
   diffPixels: number;
   totalPixels: number;
@@ -31,6 +41,8 @@ export interface PixelResult {
   height: number;
   /** True if baseline and current had different dimensions (current was resized). */
   sizeMismatch: boolean;
+  /** Largest clusters of changed pixels, used to point the vision model at hotspots. */
+  diffRegions: DiffRegion[];
 }
 
 export interface AiChange {
@@ -54,7 +66,10 @@ export type DecidedBy = "pixel-pass" | "pixel-fail" | "ai" | "ai-error";
 export interface CompareResponse {
   verdict: Verdict;
   decidedBy: DecidedBy;
-  /** True when the AI call failed; verdict defaults to fail for human review. */
+  /**
+   * True when the AI call failed (verdict defaults to fail) or the AI verdict
+   * came back with low confidence — either way a human should double-check.
+   */
   needsReview: boolean;
   pixel: PixelResult;
   ai: AiVerdict | null;
