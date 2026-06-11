@@ -29,11 +29,28 @@ export interface AiChange {
   severity: "low" | "medium" | "high";
 }
 
+/**
+ * Token/cost accounting for the LLM call(s) behind one verdict. `costUsd` is
+ * reported by hosted providers that meter spend (OpenRouter); it is absent for
+ * local backends (LM Studio), where inference is free.
+ */
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  /** Spend in USD as reported by the provider, when available. */
+  costUsd?: number;
+  /** The model that actually served the call. */
+  model: string;
+}
+
 export interface AiVerdict {
   regression: boolean;
   confidence: number;
   summary: string;
   changes: AiChange[];
+  /** Token counts and provider-reported cost for this verdict's model call. */
+  usage?: LlmUsage;
   /** Present when the model call failed and the result needs human review. */
   error?: string;
 }
@@ -116,6 +133,12 @@ export interface CompareUrlsSummary {
   different: number;
   errors: number;
   changesFlagged: number;
+  /** Number of comparisons that used an AI vision call. */
+  aiCalls?: number;
+  /** Total LLM tokens consumed across all AI calls in the run. */
+  totalTokens?: number;
+  /** Total provider-reported spend in USD (0 for local providers). */
+  costUsd?: number;
 }
 
 export interface CompareUrlsResponse {
@@ -278,6 +301,12 @@ export interface SummaryUpdateEvent {
   different: number;
   errors: number;
   changesFlagged: number;
+  /** Cells that needed an AI vision call so far. */
+  aiCalls: number;
+  /** Cumulative LLM tokens consumed by those calls. */
+  totalTokens: number;
+  /** Cumulative provider-reported spend in USD (0 for local providers). */
+  costUsd: number;
 }
 
 /**
@@ -306,4 +335,34 @@ export interface StreamErrorPayload {
 /** A cell key derived from (name, breakpoint). */
 export function cellKey(name: string, breakpoint: string): string {
   return `${name}|${breakpoint}`;
+}
+
+// ---- Comparison jobs (POST /jobs, GET /jobs, GET /jobs/:id/stream) ----
+//
+// AUTHORITATIVE SOURCE: src/server/services/jobs.ts and
+// src/server/routes/jobs.ts. A job runs server-side independently of any SSE
+// connection; several can run at once (extra ones queue), and attaching to a
+// job's stream replays its full event history before live events.
+
+export type JobState = "queued" | "running" | "done" | "error";
+
+/** Emitted on a job stream whenever the job changes lifecycle state. */
+export interface JobStateEvent {
+  type: "job:state";
+  state: JobState;
+}
+
+/** Lightweight job descriptor returned by POST /jobs, GET /jobs(/:id). */
+export interface JobSnapshot {
+  id: string;
+  state: JobState;
+  /** Human-readable label derived from the run's pairs. */
+  label: string;
+  createdAt: string;
+  totalCells: number;
+  completedCells: number;
+  summary: CompareUrlsSummary | null;
+  /** The persisted run id, once the job is done. */
+  runId?: string;
+  error?: string;
 }

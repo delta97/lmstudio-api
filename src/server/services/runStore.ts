@@ -38,11 +38,18 @@ function toSpaItem(item: UrlComparisonItem, runId: string): UrlComparisonItem {
 }
 
 function summarize(items: UrlComparisonItem[]): CompareUrlsResponse["summary"] {
+  const withUsage = items.filter((i) => i.ai?.usage);
   return {
     comparisons: items.length,
     different: items.filter((i) => i.verdict === "fail").length,
     errors: items.filter((i) => i.verdict === "error").length,
     changesFlagged: items.reduce((n, i) => n + (i.ai?.changes.length ?? 0), 0),
+    aiCalls: withUsage.length,
+    totalTokens: withUsage.reduce(
+      (n, i) => n + (i.ai?.usage?.totalTokens ?? 0),
+      0,
+    ),
+    costUsd: withUsage.reduce((n, i) => n + (i.ai?.usage?.costUsd ?? 0), 0),
   };
 }
 

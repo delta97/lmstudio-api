@@ -183,7 +183,7 @@ export async function triageWithVision(input: TriageInput): Promise<AiVerdict> {
     prepareImage(input.diffPng),
   ]);
 
-  const content = await createJsonCompletion({
+  const { content, usage } = await createJsonCompletion({
     temperature: 0,
     schema: VERDICT_JSON_SCHEMA,
     messages: [
@@ -211,5 +211,6 @@ export async function triageWithVision(input: TriageInput): Promise<AiVerdict> {
     confidence: clampConfidence(parsed.confidence),
     summary: typeof parsed.summary === "string" ? parsed.summary : "",
     changes: normalizeChanges(parsed.changes),
+    ...(usage ? { usage } : {}),
   };
 }

@@ -22,7 +22,13 @@ import { sortChangesBySeverity, type Severity } from "@/lib/status";
 import { DiffViewer } from "@/components/DiffViewer";
 import { getRun } from "@/lib/api";
 import { useRunStore } from "@/lib/store";
-import { formatConfidence, formatRatio, formatTimestamp } from "@/lib/format";
+import {
+  formatConfidence,
+  formatCost,
+  formatRatio,
+  formatTimestamp,
+  formatTokens,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { StoredRun, UrlComparisonItem } from "@/lib/types";
 
@@ -187,6 +193,26 @@ function ResultsView({ run }: { run: StoredRun }) {
 
   const { summary } = run;
 
+  // Older persisted runs predate the summary's usage fields, so fall back to
+  // re-aggregating from the per-cell AI usage records.
+  const usage = useMemo(() => {
+    let calls = 0;
+    let tokens = 0;
+    let cost = 0;
+    for (const item of run.results) {
+      const u = item.ai?.usage;
+      if (!u) continue;
+      calls++;
+      tokens += u.totalTokens;
+      cost += u.costUsd ?? 0;
+    }
+    return {
+      calls: summary.aiCalls ?? calls,
+      tokens: summary.totalTokens ?? tokens,
+      cost: summary.costUsd ?? cost,
+    };
+  }, [run.results, summary]);
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -219,7 +245,7 @@ function ResultsView({ run }: { run: StoredRun }) {
       </header>
 
       {/* Summary */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <SummaryStat label="comparisons" value={summary.comparisons} />
         <SummaryStat
           label="different"
@@ -234,6 +260,14 @@ function ResultsView({ run }: { run: StoredRun }) {
         <SummaryStat
           label="changes flagged"
           value={summary.changesFlagged}
+        />
+        <SummaryStat
+          label={`tokens · ${usage.calls} AI ${usage.calls === 1 ? "call" : "calls"}`}
+          value={usage.calls > 0 ? formatTokens(usage.tokens) : "—"}
+        />
+        <SummaryStat
+          label="ai cost"
+          value={usage.calls > 0 ? formatCost(usage.cost) : "—"}
         />
       </div>
 
@@ -370,6 +404,12 @@ function BreakpointCard({
           <DecidedByBadge decidedBy={item.decidedBy} />
           <span>diff {formatRatio(item.diffRatio)}</span>
           {item.ai ? <span>conf {formatConfidence(item.ai.confidence)}</span> : null}
+          {item.ai?.usage ? (
+            <span>{formatTokens(item.ai.usage.totalTokens)} tok</span>
+          ) : null}
+          {typeof item.ai?.usage?.costUsd === "number" ? (
+            <span>{formatCost(item.ai.usage.costUsd)}</span>
+          ) : null}
         </div>
 
         {item.sizeMismatch ? (
@@ -464,6 +504,7 @@ function SingleToggle({
       }}
       variant="outline"
       size="sm"
+      className="flex-wrap"
     >
       {options.map(([val, label]) => (
         <ToggleGroupItem key={val} value={val} className="text-xs">
@@ -480,7 +521,7 @@ function SummaryStat({
   tone,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   tone?: string;
 }) {
   return (

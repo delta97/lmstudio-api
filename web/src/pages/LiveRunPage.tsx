@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { toast } from "sonner";
-import { ArrowRightIcon, RadioIcon, SlidersHorizontalIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  CircleDashedIcon,
+  MinusIcon,
+  SlidersHorizontalIcon,
+  WifiOffIcon,
+  XIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -14,336 +20,254 @@ import {
   STAGE_META,
   STAGE_SEQUENCE,
   VERDICT_META,
-  StageIcons,
-  type CellPhase,
 } from "@/lib/status";
-import { listRuns, getRun, runCompareBlocking, startRunStream } from "@/lib/api";
-import { useRunStore } from "@/lib/store";
-import { cellKey } from "@/lib/types";
-import type {
-  CompareUrlsRequest,
-  CompareUrlsSummary,
-  RunPhase,
-  StoredRun,
-} from "@/lib/types";
-import { formatConfidence, formatElapsed, formatRatio } from "@/lib/format";
+import { listJobs } from "@/lib/api";
+import { useRunStore, type LiveCell, type LiveJob } from "@/lib/store";
+import {
+  formatConfidence,
+  formatCost,
+  formatDuration,
+  formatElapsed,
+  formatRatio,
+  formatTokens,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-interface LiveCell {
-  name: string;
-  breakpoint: string;
-  width: number;
-  height: number;
-  phase: CellPhase;
-  diffRatio?: number;
-  confidence?: number;
-  aiSummary?: string;
-  thumbnails?: { baseline: string; current: string; diff: string };
-  error?: string;
-}
-
-const EMPTY_SUMMARY: CompareUrlsSummary = {
-  comparisons: 0,
-  different: 0,
-  errors: 0,
-  changesFlagged: 0,
-};
-
 export default function LiveRunPage() {
-  const navigate = useNavigate();
-  const { pendingConfig, setLastRun } = useRunStore();
-  // Snapshot the config once so store changes don't restart the stream.
-  const [config] = useState<CompareUrlsRequest | null>(() => pendingConfig);
+  const { jobs, adoptJob } = useRunStore();
 
-  const [cells, setCells] = useState<Map<string, LiveCell>>(new Map());
-  const [order, setOrder] = useState<string[]>([]);
-  const [total, setTotal] = useState(0);
-  const [phase, setPhase] = useState<RunPhase | null>(null);
-  const [summary, setSummary] = useState<CompareUrlsSummary>(EMPTY_SUMMARY);
-  // Seeded once at mount; the run starts streaming immediately after.
-  const [startedAt] = useState(() => Date.now());
-  const [elapsed, setElapsed] = useState(0);
-  const [finishedRun, setFinishedRun] = useState<StoredRun | null>(null);
-  const [fallback, setFallback] = useState(false);
-  const [fatalError, setFatalError] = useState<string | null>(null);
-
-  const settled = useRef(false);
-  const sawEvent = useRef(false);
-  const fallbackStarted = useRef(false);
-  const streamRef = useRef<{ close: () => void } | null>(null);
-
-  const patchCell = useCallback(
-    (key: string, patch: Partial<LiveCell>) => {
-      setCells((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(key);
-        if (!existing) return prev;
-        next.set(key, { ...existing, ...patch });
-        return next;
-      });
-    },
-    [],
-  );
-
-  const finish = useCallback(
-    (run: StoredRun) => {
-      if (settled.current) return;
-      settled.current = true;
-      setFinishedRun(run);
-      setLastRun(run);
-      toast.success("Comparison complete", {
-        description: `${run.summary.comparisons} comparisons · ${run.summary.different} different`,
-      });
-      // Brief pause so the final state is visible, then advance to Results.
-      setTimeout(() => navigate(`/results/${run.id}`), 900);
-    },
-    [navigate, setLastRun],
-  );
-
-  const runFallback = useCallback(
-    async (cfg: CompareUrlsRequest) => {
-      if (fallbackStarted.current) return;
-      fallbackStarted.current = true;
-      // Stop the EventSource from retrying behind the blocking fallback.
-      streamRef.current?.close();
-      setFallback(true);
-      try {
-        await runCompareBlocking(cfg);
-        // The blocking endpoint persists a run but returns report-relative
-        // image URLs without an id; fetch the freshly-written run to get
-        // root-relative URLs + id for the Results screen.
-        const runs = await listRuns();
-        const newest = runs[0];
-        if (newest) {
-          const full = await getRun(newest.id);
-          finish(full);
-          return;
-        }
-        throw new Error("Run finished but could not be located.");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setFatalError(message);
-        toast.error("Comparison failed", { description: message });
-      }
-    },
-    [finish],
-  );
-
-  // Open the SSE stream on mount.
+  // Re-adopt jobs that are still running server-side (e.g. after a reload);
+  // the job stream replays history, so their grids rebuild completely.
   useEffect(() => {
-    if (!config) return;
-
-    const handle = startRunStream(config, {
-      onRunStart: (e) => {
-        sawEvent.current = true;
-        setTotal(e.totalCells);
-        const map = new Map<string, LiveCell>();
-        const keys: string[] = [];
-        for (const pair of e.pairs) {
-          for (const bp of e.breakpoints) {
-            const key = cellKey(pair.name, bp.name);
-            keys.push(key);
-            map.set(key, {
-              name: pair.name,
-              breakpoint: bp.name,
-              width: bp.width,
-              height: bp.height,
-              phase: { kind: "queued" },
-            });
+    listJobs()
+      .then((snapshots) => {
+        for (const snapshot of snapshots) {
+          if (snapshot.state === "queued" || snapshot.state === "running") {
+            adoptJob(snapshot);
           }
         }
-        setCells(map);
-        setOrder(keys);
-      },
-      onRunPhase: (e) => {
-        sawEvent.current = true;
-        setPhase(e.phase);
-      },
-      onCellStart: (e) => {
-        sawEvent.current = true;
-        patchCell(cellKey(e.name, e.breakpoint), {
-          width: e.width,
-          height: e.height,
-          phase: { kind: "stage", stage: "capturing-baseline" },
-        });
-      },
-      onCellStage: (e) => {
-        patchCell(cellKey(e.name, e.breakpoint), {
-          phase: { kind: "stage", stage: e.stage },
-        });
-      },
-      onCellDone: (e) => {
-        patchCell(cellKey(e.item.name, e.item.breakpoint), {
-          phase: { kind: "done", verdict: e.item.verdict },
-          diffRatio: e.item.diffRatio,
-          confidence: e.item.ai?.confidence,
-          aiSummary: e.item.ai?.summary,
-          thumbnails: e.thumbnails,
-        });
-      },
-      onCellError: (e) => {
-        patchCell(cellKey(e.name, e.breakpoint), {
-          phase: { kind: "error" },
-          error: e.error,
-        });
-      },
-      onSummaryUpdate: (e) => {
-        setSummary({
-          comparisons: e.comparisons,
-          different: e.different,
-          errors: e.errors,
-          changesFlagged: e.changesFlagged,
-        });
-      },
-      onDone: (run) => finish(run),
-      onError: (err) => {
-        if (settled.current) return;
-        // If the stream errored before producing any event, fall back to the
-        // blocking endpoint. Otherwise surface the error.
-        if (!sawEvent.current) {
-          void runFallback(config);
-        } else {
-          const message =
-            err instanceof Error ? err.message : "Connection lost";
-          setFatalError(message);
-          toast.error("Run stream error", { description: message });
-        }
-      },
-    });
+      })
+      .catch(() => {
+        // Backend unreachable; tracked jobs (if any) still render.
+      });
+  }, [adoptJob]);
 
-    streamRef.current = handle;
-    return () => handle.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config]);
-
-  // Elapsed timer.
-  useEffect(() => {
-    if (finishedRun) return;
-    const id = setInterval(() => setElapsed(Date.now() - startedAt), 500);
-    return () => clearInterval(id);
-  }, [startedAt, finishedRun]);
-
-  const completed = useMemo(
-    () =>
-      order.filter((k) => {
-        const c = cells.get(k);
-        return c && (c.phase.kind === "done" || c.phase.kind === "error");
-      }).length,
-    [order, cells],
+  // One shared ticker drives every elapsed-time and active-stage readout.
+  const [now, setNow] = useState(() => Date.now());
+  const anyActive = jobs.some(
+    (j) => j.state === "queued" || j.state === "running",
   );
-
-  const progressValue = total > 0 ? (completed / total) * 100 : 0;
-
-  if (!config) {
-    return (
-      <div className="flex flex-col gap-6">
-        <PageHeader />
-        <Alert>
-          <SlidersHorizontalIcon />
-          <AlertTitle>No run configured</AlertTitle>
-          <AlertDescription>
-            Start a comparison from the setup screen to watch it run live.
-          </AlertDescription>
-        </Alert>
-        <Button className="w-fit" render={<Link to="/" />}>
-          Go to setup
-        </Button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!anyActive) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [anyActive]);
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Live runs</h1>
+          <p className="text-sm text-muted-foreground">
+            Every comparison job, streamed step by step. Each cell is one pair
+            at one breakpoint moving through capture, pixel diff, and AI
+            review. Start more runs at any time — they execute in parallel.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          render={<Link to="/" />}
+        >
+          <SlidersHorizontalIcon data-icon="inline-start" />
+          New comparison
+        </Button>
+      </header>
 
-      {fatalError ? (
-        <Alert variant="destructive">
-          <RadioIcon />
-          <AlertTitle>Run failed</AlertTitle>
-          <AlertDescription>{fatalError}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {/* Summary bar */}
-      <Card>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              {finishedRun ? (
-                <Badge
-                  variant="outline"
-                  className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                >
-                  complete
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="gap-1.5">
-                  <Spinner className="size-3" />
-                  {fallback
-                    ? "running (no live stream)"
-                    : phase
-                      ? RUN_PHASE_META[phase].label
-                      : "running"}
-                </Badge>
-              )}
-              <span className="font-mono text-sm tabular-nums text-muted-foreground">
-                {formatElapsed(elapsed)}
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
-              <Stat label="match" value={summary.comparisons - summary.different - summary.errors} tone="text-emerald-400" />
-              <Stat label="different" value={summary.different} tone="text-amber-400" />
-              <Stat label="errors" value={summary.errors} tone="text-destructive" />
-              <Stat label="changes" value={summary.changesFlagged} tone="text-foreground" />
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Progress
-              value={fallback && !finishedRun ? null : progressValue}
-            />
-            <div className="flex items-center justify-between font-mono text-xs text-muted-foreground tabular-nums">
-              <span>
-                {completed} / {total || "?"} cells
-              </span>
-              {finishedRun ? (
-                <Button
-                  size="sm"
-                  onClick={() => navigate(`/results/${finishedRun.id}`)}
-                >
-                  View results
-                  <ArrowRightIcon data-icon="inline-end" />
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Cell grid */}
-      {fallback && order.length === 0 ? (
-        <FallbackGrid />
+      {jobs.length === 0 ? (
+        <>
+          <Alert>
+            <SlidersHorizontalIcon />
+            <AlertTitle>No active runs</AlertTitle>
+            <AlertDescription>
+              Start a comparison from the setup screen to watch it run live.
+              Multiple comparisons can run at the same time.
+            </AlertDescription>
+          </Alert>
+          <Button className="w-fit" render={<Link to="/" />}>
+            Go to setup
+          </Button>
+        </>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {order.map((key) => {
-            const cell = cells.get(key);
-            if (!cell) return null;
-            return <CellCard key={key} cell={cell} />;
-          })}
+        <div className="flex flex-col gap-8">
+          {jobs.map((job) => (
+            <JobPanel key={job.id} job={job} now={now} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function PageHeader() {
+function JobPanel({ job, now }: { job: LiveJob; now: number }) {
+  const navigate = useNavigate();
+  const { dismissJob } = useRunStore();
+  const { summary } = job;
+
+  const terminal = job.state === "done" || job.state === "error";
+  const elapsed = (job.finishedAt ?? now) - job.startedAt;
+  const progressValue =
+    job.totalCells > 0 ? (job.completedCells / job.totalCells) * 100 : null;
+  const showIndeterminate =
+    !terminal && (job.totalCells === 0 || (job.degraded && job.totalCells === 0));
+
   return (
-    <header className="flex flex-col gap-1">
-      <h1 className="text-2xl font-semibold tracking-tight">Live run</h1>
-      <p className="text-sm text-muted-foreground">
-        Each cell is one pair captured at one breakpoint, streamed as it
-        progresses through capture, pixel diff, and AI review.
-      </p>
-    </header>
+    <section className="flex flex-col gap-3">
+      <Card>
+        <CardContent className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+              <JobStateBadge job={job} />
+              <span
+                className="max-w-56 truncate font-mono text-sm sm:max-w-xs"
+                title={job.label}
+              >
+                {job.label}
+              </span>
+              <span className="font-mono text-sm tabular-nums text-muted-foreground">
+                {formatElapsed(elapsed)}
+              </span>
+              {job.degraded && !terminal ? (
+                <Badge variant="outline" className="gap-1 text-muted-foreground">
+                  <WifiOffIcon className="size-3" />
+                  polling
+                </Badge>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
+              <Stat
+                label="match"
+                value={summary.comparisons - summary.different - summary.errors}
+                tone="text-emerald-400"
+              />
+              <Stat label="different" value={summary.different} tone="text-amber-400" />
+              <Stat label="errors" value={summary.errors} tone="text-destructive" />
+              <Stat label="changes" value={summary.changesFlagged} tone="text-foreground" />
+              {(summary.totalTokens ?? 0) > 0 ? (
+                <span className="flex items-center gap-1">
+                  <span className="tabular-nums text-foreground">
+                    {formatTokens(summary.totalTokens ?? 0)}
+                  </span>
+                  <span className="text-muted-foreground">tokens</span>
+                </span>
+              ) : null}
+              {(summary.aiCalls ?? 0) > 0 ? (
+                <span className="flex items-center gap-1">
+                  <span className="tabular-nums text-foreground">
+                    {formatCost(summary.costUsd ?? 0)}
+                  </span>
+                  <span className="text-muted-foreground">ai cost</span>
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          {job.error ? (
+            <Alert variant="destructive">
+              <XIcon />
+              <AlertTitle>Run failed</AlertTitle>
+              <AlertDescription>{job.error}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="flex flex-col gap-1.5">
+            <Progress value={showIndeterminate ? null : progressValue} />
+            <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-muted-foreground tabular-nums">
+              <span>
+                {job.completedCells} / {job.totalCells || "?"} cells
+              </span>
+              <div className="flex items-center gap-2">
+                {job.run ? (
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/results/${job.run!.id}`)}
+                  >
+                    View results
+                    <ArrowRightIcon data-icon="inline-end" />
+                  </Button>
+                ) : null}
+                {terminal ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => dismissJob(job.id)}
+                  >
+                    <XIcon data-icon="inline-start" />
+                    Dismiss
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {job.order.length > 0 ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {job.order.map((key) => {
+            const cell = job.cells.get(key);
+            if (!cell) return null;
+            return <CellCard key={key} cell={cell} now={now} />;
+          })}
+        </div>
+      ) : !terminal ? (
+        <p className="px-1 font-mono text-xs text-muted-foreground">
+          {job.state === "queued"
+            ? "Waiting for a free run slot…"
+            : job.degraded
+              ? "Live stream unavailable — progress is polled without per-cell detail."
+              : "Waiting for the run plan…"}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function JobStateBadge({ job }: { job: LiveJob }) {
+  if (job.state === "done") {
+    return (
+      <Badge
+        variant="outline"
+        className="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+      >
+        complete
+      </Badge>
+    );
+  }
+  if (job.state === "error") {
+    return (
+      <Badge
+        variant="outline"
+        className="border-destructive/30 bg-destructive/10 text-destructive"
+      >
+        failed
+      </Badge>
+    );
+  }
+  if (job.state === "queued") {
+    return (
+      <Badge variant="secondary" className="gap-1.5">
+        <CircleDashedIcon className="size-3" />
+        queued
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" className="gap-1.5">
+      <Spinner className="size-3" />
+      {job.phase ? RUN_PHASE_META[job.phase].label : "running"}
+    </Badge>
   );
 }
 
@@ -364,9 +288,8 @@ function Stat({
   );
 }
 
-function CellCard({ cell }: { cell: LiveCell }) {
+function CellCard({ cell, now }: { cell: LiveCell; now: number }) {
   const { phase } = cell;
-  const isActive = phase.kind === "stage";
 
   return (
     <Card
@@ -387,7 +310,8 @@ function CellCard({ cell }: { cell: LiveCell }) {
           </Badge>
         </div>
 
-        <PhaseRow phase={phase} active={isActive} error={cell.error} />
+        <VerdictRow cell={cell} />
+        <StageStepper cell={cell} now={now} />
 
         {cell.thumbnails ? (
           <div className="grid grid-cols-3 gap-1.5">
@@ -407,10 +331,16 @@ function CellCard({ cell }: { cell: LiveCell }) {
         ) : null}
 
         {typeof cell.diffRatio === "number" && phase.kind !== "queued" ? (
-          <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted-foreground">
             <span>diff {formatRatio(cell.diffRatio)}</span>
             {typeof cell.confidence === "number" ? (
               <span>conf {formatConfidence(cell.confidence)}</span>
+            ) : null}
+            {cell.usage ? (
+              <span>{formatTokens(cell.usage.totalTokens)} tok</span>
+            ) : null}
+            {typeof cell.usage?.costUsd === "number" ? (
+              <span>{formatCost(cell.usage.costUsd)}</span>
             ) : null}
           </div>
         ) : null}
@@ -429,74 +359,113 @@ function CellCard({ cell }: { cell: LiveCell }) {
   );
 }
 
-function PhaseRow({
-  phase,
-  active,
-  error,
-}: {
-  phase: CellPhase;
-  active: boolean;
-  error?: string;
-}) {
+/** The cell's headline state: queued, current stage, or final verdict. */
+function VerdictRow({ cell }: { cell: LiveCell }) {
+  const { phase } = cell;
   if (phase.kind === "queued") {
-    const Icon = StageIcons.queued;
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className="size-4" />
+        <CircleDashedIcon className="size-4" />
         Queued
       </div>
     );
   }
   if (phase.kind === "stage") {
     const meta = STAGE_META[phase.stage];
-    const stepIndex = STAGE_SEQUENCE.indexOf(phase.stage) + 1;
     return (
       <div className="flex items-center gap-2 text-sm">
-        {active ? (
-          <Spinner className="size-4 text-primary" />
-        ) : (
-          <meta.Icon className="size-4 text-primary" />
-        )}
+        <Spinner className="size-4 text-primary" />
         <span>{meta.label}</span>
         <span className="ml-auto font-mono text-[0.7rem] text-muted-foreground">
-          {stepIndex}/{STAGE_SEQUENCE.length}
+          {STAGE_SEQUENCE.indexOf(phase.stage) + 1}/{STAGE_SEQUENCE.length}
         </span>
       </div>
     );
   }
-  if (phase.kind === "done") {
-    const meta = VERDICT_META[phase.verdict];
-    const Icon = meta.Icon;
-    return (
-      <div className={cn("flex items-center gap-2 text-sm", meta.text)}>
-        <Icon className="size-4" />
-        {meta.label}
-      </div>
-    );
-  }
-  // error
-  const meta = VERDICT_META.error;
+  const meta =
+    phase.kind === "done" ? VERDICT_META[phase.verdict] : VERDICT_META.error;
   const Icon = meta.Icon;
   return (
     <div className={cn("flex items-center gap-2 text-sm", meta.text)}>
       <Icon className="size-4" />
-      {error ? "Capture error" : meta.label}
+      {phase.kind === "error" && cell.error ? "Capture error" : meta.label}
     </div>
   );
 }
 
-function FallbackGrid() {
+type StageStatus = "done" | "active" | "pending" | "skipped";
+
+/**
+ * The granular per-cell progress readout: one row per pipeline stage with its
+ * live or final duration. Stages that never ran on a finished cell (e.g. AI
+ * review when the pixel diff already decided) render as skipped.
+ */
+function StageStepper({ cell, now }: { cell: LiveCell; now: number }) {
+  const { phase } = cell;
+  const activeIndex =
+    phase.kind === "stage" ? STAGE_SEQUENCE.indexOf(phase.stage) : -1;
+  const terminal = phase.kind === "done" || phase.kind === "error";
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} size="sm">
-          <CardContent className="flex flex-col gap-3">
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="aspect-video w-full" />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+    <ol className="flex flex-col gap-1 rounded-md bg-muted/30 p-2">
+      {STAGE_SEQUENCE.map((stage, i) => {
+        const meta = STAGE_META[stage];
+        const duration = cell.stageDurations[stage];
+        const status: StageStatus =
+          phase.kind === "queued"
+            ? "pending"
+            : phase.kind === "stage"
+              ? i < activeIndex
+                ? "done"
+                : i === activeIndex
+                  ? "active"
+                  : "pending"
+              : duration !== undefined
+                ? "done"
+                : "skipped";
+
+        const liveMs =
+          status === "active" && cell.stageStartedAt !== undefined
+            ? Math.max(0, now - cell.stageStartedAt)
+            : null;
+
+        return (
+          <li
+            key={stage}
+            className={cn(
+              "flex items-center gap-2 text-xs",
+              status === "active"
+                ? "text-foreground"
+                : status === "done"
+                  ? "text-muted-foreground"
+                  : "text-muted-foreground/60",
+            )}
+          >
+            {status === "done" ? (
+              <CheckIcon className="size-3.5 shrink-0 text-emerald-400" />
+            ) : status === "active" ? (
+              <Spinner className="size-3.5 shrink-0 text-primary" />
+            ) : status === "skipped" ? (
+              <MinusIcon className="size-3.5 shrink-0" />
+            ) : (
+              <CircleDashedIcon className="size-3.5 shrink-0" />
+            )}
+            <meta.Icon className="size-3.5 shrink-0" />
+            <span className="truncate">{meta.label}</span>
+            <span className="ml-auto font-mono text-[0.7rem] tabular-nums">
+              {status === "skipped"
+                ? terminal
+                  ? "skipped"
+                  : ""
+                : duration !== undefined
+                  ? formatDuration(duration)
+                  : liveMs !== null
+                    ? formatDuration(liveMs)
+                    : ""}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }

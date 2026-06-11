@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { compareRouter } from "./routes/compare.js";
 import { compareUrlsRouter } from "./routes/compareUrls.js";
 import { healthRouter } from "./routes/health.js";
+import { jobsRouter } from "./routes/jobs.js";
 import { runsRouter } from "./routes/runs.js";
 import { providerLabel, warmModel } from "./services/llm.js";
 import { REPORTS_DIR } from "./services/runStore.js";
@@ -32,6 +33,7 @@ app.use("/reports", express.static(REPORTS_DIR));
 app.use(healthRouter);
 app.use(compareRouter);
 app.use(compareUrlsRouter);
+app.use(jobsRouter);
 app.use(runsRouter);
 
 app.get("/", (_req, res) => {
@@ -42,6 +44,10 @@ app.get("/", (_req, res) => {
       "POST /compare",
       "POST /compare-urls",
       "GET /compare-urls/stream",
+      "POST /jobs",
+      "GET /jobs",
+      "GET /jobs/:id",
+      "GET /jobs/:id/stream",
       "GET /runs",
       "GET /runs/:id",
       "GET /reports/<id>/...",

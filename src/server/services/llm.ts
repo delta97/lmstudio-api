@@ -1,9 +1,11 @@
 import OpenAI, { APIError } from "openai";
 import type {
+  ChatCompletion,
   ChatCompletionCreateParamsNonStreaming,
   ChatCompletionMessageParam,
 } from "openai/resources/chat/completions";
 import { config } from "../config.js";
+import type { LlmUsage } from "../types.js";
 
 /**
  * Provider-agnostic LLM access. The rest of the pipeline talks to this module
@@ -75,6 +77,31 @@ export interface JsonCompletionOptions {
   temperature?: number;
 }
 
+export interface JsonCompletionResult {
+  content: string;
+  /** Token counts (and cost, when the provider reports it) for the call. */
+  usage?: LlmUsage;
+}
+
+/**
+ * OpenRouter returns the metered USD cost in `usage.cost` when the request
+ * asks for usage accounting (`usage: { include: true }`). The OpenAI SDK types
+ * don't know about either extension, so both are typed loosely here.
+ */
+function extractUsage(completion: ChatCompletion): LlmUsage | undefined {
+  const usage = completion.usage as
+    | (NonNullable<ChatCompletion["usage"]> & { cost?: unknown })
+    | undefined;
+  if (!usage) return undefined;
+  return {
+    promptTokens: usage.prompt_tokens ?? 0,
+    completionTokens: usage.completion_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? 0,
+    ...(typeof usage.cost === "number" ? { costUsd: usage.cost } : {}),
+    model: completion.model || config.llm.model,
+  };
+}
+
 /**
  * Runs a chat completion that must return JSON.
  *
@@ -85,7 +112,7 @@ export interface JsonCompletionOptions {
  */
 export async function createJsonCompletion(
   opts: JsonCompletionOptions,
-): Promise<string> {
+): Promise<JsonCompletionResult> {
   const formats: Array<
     ChatCompletionCreateParamsNonStreaming["response_format"]
   > = [
@@ -99,17 +126,22 @@ export async function createJsonCompletion(
   for (const responseFormat of formats) {
     for (let attempt = 0; attempt <= config.llm.retries; attempt++) {
       try {
-        const completion = await llmClient.chat.completions.create({
+        const params: ChatCompletionCreateParamsNonStreaming = {
           model: opts.model ?? config.llm.model,
           temperature: opts.temperature ?? 0,
           messages: opts.messages,
           ...(responseFormat ? { response_format: responseFormat } : {}),
-        });
+          // Ask OpenRouter to report the metered cost alongside token counts.
+          ...(provider === "openrouter"
+            ? ({ usage: { include: true } } as object)
+            : {}),
+        };
+        const completion = await llmClient.chat.completions.create(params);
         const content = completion.choices[0]?.message?.content;
         if (!content) {
           throw new Error(`${providerLabel} returned an empty response.`);
         }
-        return content;
+        return { content, usage: extractUsage(completion) };
       } catch (err) {
         lastError = err;
         if (isFormatError(err)) break; // move on to the next, looser format

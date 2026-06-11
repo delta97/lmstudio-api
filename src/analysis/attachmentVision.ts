@@ -127,7 +127,7 @@ export async function analyzeImage(
     .filter(Boolean)
     .join("\n");
 
-  const content = await createJsonCompletion({
+  const { content } = await createJsonCompletion({
     model,
     temperature: 0,
     schema: ANALYSIS_JSON_SCHEMA,
