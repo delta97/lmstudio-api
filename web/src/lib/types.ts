@@ -168,6 +168,8 @@ export interface LlmHealth {
   /** Whether the provider endpoint is reachable (and the key valid). */
   reachable: boolean;
   baseUrl: string;
+  /** Which configuration layer is active: database (UI), env, or default. */
+  source: LlmConfigSource;
   /** The configured vision model id. */
   configuredModel: string;
   /** Loaded (LM Studio) or available in the catalog (OpenRouter). */
@@ -184,6 +186,54 @@ export interface HealthResponse {
   llm: LlmHealth;
   /** Deprecated alias of `llm`, kept for older clients. */
   lmStudio: LlmHealth;
+}
+
+// ---- Settings (GET /settings, PUT /settings/llm, DELETE /settings/llm) ----
+
+/**
+ * Which configuration layer produced the active LLM settings:
+ * "database" (saved from the UI, SQLite) > "env" (.env) > "default" (local).
+ */
+export type LlmConfigSource = "database" | "env" | "default";
+
+export interface LlmSettings {
+  provider: LlmProvider;
+  model: string;
+  baseUrl: string;
+  source: LlmConfigSource;
+  /** Whether an API key is available for the ACTIVE provider. */
+  hasApiKey: boolean;
+  /** Masked preview of the active OpenRouter key (never the full key). */
+  apiKeyMasked: string | null;
+  /** Settings saved from the UI, or null when nothing was saved. */
+  saved: {
+    provider: LlmProvider | null;
+    openrouterModel: string | null;
+    hasOpenrouterApiKey: boolean;
+  } | null;
+  /** What the environment (.env) defines. */
+  env: {
+    provider: LlmProvider | null;
+    openrouterModel: string | null;
+    hasOpenrouterApiKey: boolean;
+  };
+}
+
+export interface SettingsResponse {
+  llm: LlmSettings;
+}
+
+/** Body for PUT /settings/llm. Omitted fields keep their current value. */
+export interface LlmSettingsUpdate {
+  provider: LlmProvider;
+  openrouterApiKey?: string;
+  openrouterModel?: string;
+}
+
+/** One vision-capable model from GET /settings/openrouter/models. */
+export interface OpenRouterModel {
+  id: string;
+  name: string;
 }
 
 // ---- Run history (GET /runs, GET /runs/:id) ----

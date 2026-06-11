@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import sharp from "sharp";
 import {
   analyzeImage,
-  DEFAULT_ANALYSIS_MODEL,
+  getDefaultAnalysisModel,
   type ImageAnalysis,
 } from "../src/analysis/attachmentVision.js";
 
@@ -181,7 +181,7 @@ async function main(): Promise<void> {
   });
   const inputPath = positional ?? DEFAULT_INPUT;
   const outDir = getFlag(args, "out") ?? "analysis-output";
-  const model = getFlag(args, "model") ?? DEFAULT_ANALYSIS_MODEL;
+  const model = getFlag(args, "model") ?? getDefaultAnalysisModel();
   const limitRaw = getFlag(args, "limit");
   const limit = limitRaw ? Number(limitRaw) : Infinity;
   const force = hasFlag(args, "force");

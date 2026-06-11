@@ -7,6 +7,9 @@ dist/
 # Generated reports
 reports/
 
+# UI-saved settings (SQLite; may contain API keys)
+data/
+
 # Attachment vision-analysis output (may contain private message data)
 analysis-output/
 

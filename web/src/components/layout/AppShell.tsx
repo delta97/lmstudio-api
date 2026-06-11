@@ -3,6 +3,7 @@ import {
   HistoryIcon,
   LayersIcon,
   RadioIcon,
+  SettingsIcon,
   SlidersHorizontalIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/run", label: "Live run", icon: RadioIcon },
   { to: "/results", label: "Results", icon: LayersIcon },
   { to: "/history", label: "History", icon: HistoryIcon },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 function SidebarLink({ item }: { item: NavItem }) {
