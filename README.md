@@ -218,6 +218,48 @@ The captured screenshots in the report show exactly what the browser received, s
 
 > Note: `POST /compare-urls` defaults `maxRatio` to `1`, so the vision model always describes any difference it finds (rather than short-circuiting to an instant pixel-fail when two different pages diverge a lot). Identical pages still pass instantly via the pixel fast-path.
 
+## OCR content-invariance check
+
+Pixel and DOM diffing answer "did anything *look* different?" — which is exactly the wrong question during an intentional styling change (CSS refactor, font swap, layout migration), where every pixel diff fires. The OCR check answers the orthogonal question: **did the actual rendered text content survive the visual change?** It OCRs both screenshots with the dedicated [Unlimited-OCR](../ocr-testing/Unlimited-OCR) model, strips styling down to text, and asserts the content is unchanged. It catches clipped/truncated text, a word dropped from a re-wrap, a broken ligature, an overlay covering text, or a dynamic field reset to a placeholder — while being deliberately blind to the cosmetic changes pixel diffing flags.
+
+It runs the Unlimited-OCR model in a persistent Python worker (loaded once, OCRs many images) — no LM Studio/SGLang server needed. Point it at the sibling repo via two env vars (defaults shown):
+
+```bash
+UNLIMITED_OCR_DIR=../ocr-testing/Unlimited-OCR        # the Unlimited-OCR repo
+UNLIMITED_OCR_PYTHON=${UNLIMITED_OCR_DIR}/.venv/bin/python
+```
+
+### CLI
+
+Pairs images by basename across two directories, OCRs each side, normalizes the text, and diffs the content. Exits `1` if any pair changes beyond the threshold.
+
+```bash
+# Default threshold 0 — any content delta fails:
+npm run ocr-diff -- --before ./before --after ./after
+
+# Tolerate small OCR jitter, normalize case/punctuation:
+npm run ocr-diff -- --before ./before --after ./after --threshold 0.02 --lowercase --strip-punct
+```
+
+### Playwright helper
+
+`expectOcrInvariant(page, name, options)` mirrors `expectVisualMatch`: it screenshots the target, OCRs + normalizes it, and asserts the content matches a stored text baseline in `__ocr_baselines__/`. First run (or `UPDATE_BASELINES=1`) seeds the baseline and skips the assertion.
+
+```ts
+import { expectOcrInvariant } from "../../client/ocrInvariant.js";
+
+await expectOcrInvariant(page, "checkout-card-content", {
+  target: page.locator(".card"),
+  // threshold: 0 (default), lowercase, stripPunctuation
+});
+```
+
+```bash
+# Seed baselines, then assert on subsequent runs:
+UPDATE_BASELINES=1 npx playwright test ocrInvariant.spec.ts -c examples/playwright.config.ts
+npx playwright test ocrInvariant.spec.ts -c examples/playwright.config.ts
+```
+
 ## API reference
 
 ### `POST /compare`

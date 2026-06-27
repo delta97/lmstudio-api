@@ -13,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke": "tsx scripts/smoke.ts",
     "compare-urls": "tsx scripts/compareUrls.ts",
+    "ocr-diff": "tsx scripts/ocrDiff.ts",
     "analyze-attachments": "tsx scripts/analyzeAttachments.ts",
     "test:example": "playwright test example.spec.ts -c examples/playwright.config.ts",
     "test:responsive": "playwright test responsive.spec.ts -c examples/playwright.config.ts",
@@ -44,5 +45,11 @@
     "remotion": "^4.0.473",
     "tsx": "^4.19.1",
     "typescript": "^5.6.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.0": true,
+    "fsevents@2.3.2": true,
+    "fsevents@2.3.3": true,
+    "sharp@0.33.5": true
   }
 }
