@@ -167,6 +167,14 @@ npm run test:responsive
 
 **Use it inside your own Playwright tests:** see the `expectVisualMatch` section in the [README](./README.md).
 
+**OCR content-invariance check (no server, no LLM needed):** OCR two folders of screenshots and assert the text content is unchanged — useful during an intentional restyle. Requires the sibling [Unlimited-OCR](../ocr-testing/Unlimited-OCR) repo with its Python venv:
+
+```bash
+npm run ocr-diff -- --before ./before --after ./after
+```
+
+See the [OCR content-invariance check](./README.md#ocr-content-invariance-check) section in the README for the `expectOcrInvariant` Playwright helper and options.
+
 ---
 
 ## Troubleshooting

@@ -9,6 +9,8 @@ It has two parts:
 1. A stateless **comparison server** (Node/TypeScript + Express) that wraps the vision-model API and exposes `POST /compare`.
 2. A **Playwright client helper** (`expectVisualMatch`) that captures screenshots, manages baselines, calls the server, and asserts the verdict — attaching the baseline, current, diff, and AI reasoning to the Playwright HTML report.
 
+It also ships an orthogonal, **LLM-free** [OCR content-invariance check](#ocr-content-invariance-check) (`expectOcrInvariant` / the `ocr-diff` CLI): it OCRs screenshots with a local [Unlimited-OCR](../ocr-testing/Unlimited-OCR) model and asserts the rendered *text* survived a visual change — catching dropped/clipped/truncated text that pixel diffing buries in noise during an intentional restyle. It runs entirely on your machine and pairs with either LLM backend above (e.g. local OCR + remote OpenRouter triage).
+
 ## How it decides pass/fail (hybrid)
 
 ```
@@ -28,7 +30,8 @@ If the model call fails (after `AI_RETRIES` transient retries), the comparison *
 ## Prerequisites
 
 - Node.js 22.5+ (uses the built-in `node:sqlite` module for UI-saved settings; developed against Node 26).
-- Either a local LM Studio server **or** an OpenRouter API key (see below).
+- Either a local LM Studio server **or** an OpenRouter API key (see below) — for the pixel-diff AI triage.
+- _(Optional, for the [OCR content-invariance check](#ocr-content-invariance-check) only)_ the sibling [Unlimited-OCR](../ocr-testing/Unlimited-OCR) repo with its Python venv set up. No LM Studio/OpenRouter/SGLang is needed for this check — it runs the model in-process on Apple Silicon (MPS) or CPU. Model weights download from HuggingFace on first run and are cached afterward.
 
 ### Option A: LM Studio (local, default)
 
@@ -260,6 +263,31 @@ UPDATE_BASELINES=1 npx playwright test ocrInvariant.spec.ts -c examples/playwrig
 npx playwright test ocrInvariant.spec.ts -c examples/playwright.config.ts
 ```
 
+On failure the helper attaches the baseline text, the current text, and a readable word-level diff to the Playwright HTML report, and the assertion message includes the same diff.
+
+### How matching works
+
+1. **OCR** — the screenshot is sent to the local Unlimited-OCR worker, which returns markdown.
+2. **Normalize** — markdown artifacts are stripped (image placeholders, `<|det|>` box tokens, headings, emphasis, table pipes) and whitespace is collapsed, leaving comparable text. `lowercase` and `stripPunctuation` are off by default.
+3. **Diff** — a dependency-free word-level diff computes a similarity `ratio = 2·M / T` (matched tokens over total tokens, matching Python `difflib`'s `SequenceMatcher.ratio()`). The check **passes when `1 − ratio ≤ threshold`**. The default `threshold` of `0` means any content change fails.
+
+### `expectOcrInvariant(page, name, options)`
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `target` | the `page` | Element/page to screenshot (`Locator` or `Page`) |
+| `baselineDir` | `__ocr_baselines__/` next to the spec | Where `.txt` baselines are read/written |
+| `screenshot` | _(none)_ | Forwarded to Playwright's `screenshot()` |
+| `threshold` | `0` | Max allowed `1 − ratio`; `0` = any content change fails |
+| `lowercase` | `false` | Lowercase both sides before comparing |
+| `stripPunctuation` | `false` | Drop punctuation before comparing |
+
+The `ocr-diff` CLI mirrors these: `--threshold`, `--lowercase`, `--strip-punct`, with `--before`/`--after` directories paired by file basename.
+
+### Pairing local OCR with a remote LLM
+
+The OCR check uses **no LLM** — it is a deterministic text diff. The pixel-diff AI triage is independent and provider-agnostic, so the common setup is **local OCR + remote LLM**: set `LLM_PROVIDER=openrouter` (with a vision-capable `OPENROUTER_MODEL`) for triage while `expectOcrInvariant` / `ocr-diff` run entirely on your machine. Neither path depends on the other; they can run in the same CI job against the same screenshots.
+
 ## API reference
 
 ### `POST /compare`
@@ -362,7 +390,9 @@ Settings are resolved in priority order:
 | `AI_REVIEW_CONFIDENCE` | `0.6` | AI verdicts below this confidence are flagged `needsReview` |
 | `WARM_MODEL_ON_START` | `false` | Load the model via LM Studio's native API on startup |
 | `COMPARE_SERVER_URL` | `http://localhost:3100` | Client: where to send comparisons |
-| `UPDATE_BASELINES` | _(empty)_ | Client: `1` to (re)write baselines |
+| `UPDATE_BASELINES` | _(empty)_ | Client: `1` to (re)write baselines (visual **and** OCR) |
+| `UNLIMITED_OCR_DIR` | `../ocr-testing/Unlimited-OCR` | OCR check: path to the Unlimited-OCR repo (with `ocr_server.py`) |
+| `UNLIMITED_OCR_PYTHON` | `${UNLIMITED_OCR_DIR}/.venv/bin/python` | OCR check: Python interpreter that runs the worker |
 
 ## Project layout
 
@@ -377,9 +407,18 @@ src/server/
   services/llm.ts       provider-agnostic client (LM Studio / OpenRouter) + JSON fallback + retries
   services/visionTriage.ts vision triage prompt + structured verdict
   services/verdict.ts   hybrid pass/fail logic
+src/ocr/
+  ocrEngine.ts          manages the local Unlimited-OCR worker (lazy singleton, JSON-lines)
+  normalize.ts          strips OCR markdown artifacts down to comparable text
+  textDiff.ts           dependency-free word LCS diff (difflib ratio semantics)
 client/
   visualMatch.ts        Playwright helper (expectVisualMatch)
   baseline.ts           baseline read/write + UPDATE_BASELINES
+  ocrInvariant.ts       Playwright helper (expectOcrInvariant)
+  ocrBaseline.ts        .txt OCR baseline read/write
 scripts/smoke.ts        standalone smoke test
-examples/               runnable Playwright demo
+scripts/ocrDiff.ts      ocr-diff CLI (compare two directories of images)
+examples/               runnable Playwright demos (incl. ocrInvariant.spec.ts)
 ```
+
+> The OCR worker itself (`ocr_server.py`) lives in the sibling [Unlimited-OCR](../ocr-testing/Unlimited-OCR) repo; this repo drives it as a subprocess via `src/ocr/ocrEngine.ts`.
