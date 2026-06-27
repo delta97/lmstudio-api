@@ -18,3 +18,8 @@ examples/test-results/
 examples/playwright-report/
 examples/.cache/
 examples/report/
+
+# OCR worker (Python venv + caches + scratch outputs)
+ocr-worker/.venv/
+ocr-worker/__pycache__/
+ocr-worker/outputs/

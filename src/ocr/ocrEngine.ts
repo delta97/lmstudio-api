@@ -6,22 +6,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Drives the persistent Unlimited-OCR worker (Unlimited-OCR/ocr_server.py) as a
- * lazy singleton child process. The worker loads the model once and OCRs many
- * images over a JSON-lines stdin/stdout protocol, so we never pay the
+ * Drives the persistent OCR worker (ocr-worker/ocr_server.py) as a lazy
+ * singleton child process. The worker loads the Unlimited-OCR model once and
+ * OCRs many images over a JSON-lines stdin/stdout protocol, so we never pay the
  * model-load cost per screenshot.
  */
 
 const repoRoot = path.resolve(fileURLToPath(import.meta.url), "../../..");
 
 function ocrDir(): string {
-  const fromEnv = process.env.UNLIMITED_OCR_DIR;
+  const fromEnv = process.env.OCR_WORKER_DIR;
   if (fromEnv) return path.resolve(fromEnv);
-  return path.resolve(repoRoot, "../ocr-testing/Unlimited-OCR");
+  return path.resolve(repoRoot, "ocr-worker");
 }
 
 function ocrPython(dir: string): string {
-  return process.env.UNLIMITED_OCR_PYTHON ?? path.join(dir, ".venv/bin/python");
+  return process.env.OCR_WORKER_PYTHON ?? path.join(dir, ".venv/bin/python");
 }
 
 interface PendingRequest {
@@ -45,11 +45,12 @@ let stdoutBuffer = "";
 
 function missingDepsError(dir: string, python: string): Error {
   return new Error(
-    `Unlimited-OCR worker not found.\n` +
+    `OCR worker not found.\n` +
       `  expected dir:    ${dir}\n` +
       `  expected python: ${python}\n` +
-      `Set UNLIMITED_OCR_DIR to the Unlimited-OCR repo and UNLIMITED_OCR_PYTHON ` +
-      `to its venv interpreter (default: <dir>/.venv/bin/python).`,
+      `Create the worker venv (cd ocr-worker && python3.10 -m venv .venv && ` +
+      `.venv/bin/pip install -r requirements.txt), or set OCR_WORKER_DIR / ` +
+      `OCR_WORKER_PYTHON to point at an existing worker dir and interpreter.`,
   );
 }
 
