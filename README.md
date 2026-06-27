@@ -9,7 +9,7 @@ It has two parts:
 1. A stateless **comparison server** (Node/TypeScript + Express) that wraps the vision-model API and exposes `POST /compare`.
 2. A **Playwright client helper** (`expectVisualMatch`) that captures screenshots, manages baselines, calls the server, and asserts the verdict — attaching the baseline, current, diff, and AI reasoning to the Playwright HTML report.
 
-It also ships an orthogonal, **LLM-free** [OCR content-invariance check](#ocr-content-invariance-check) (`expectOcrInvariant` / the `ocr-diff` CLI): it OCRs screenshots with a local [Unlimited-OCR](../ocr-testing/Unlimited-OCR) model and asserts the rendered *text* survived a visual change — catching dropped/clipped/truncated text that pixel diffing buries in noise during an intentional restyle. It runs entirely on your machine and pairs with either LLM backend above (e.g. local OCR + remote OpenRouter triage).
+It also ships an orthogonal, **LLM-free** [OCR content-invariance check](#ocr-content-invariance-check) (`expectOcrInvariant` / the `ocr-diff` CLI): it OCRs screenshots with a local model (the bundled [`ocr-worker/`](./ocr-worker)) and asserts the rendered *text* survived a visual change — catching dropped/clipped/truncated text that pixel diffing buries in noise during an intentional restyle. It runs entirely on your machine and pairs with either LLM backend above (e.g. local OCR + remote OpenRouter triage).
 
 ## How it decides pass/fail (hybrid)
 
@@ -31,7 +31,7 @@ If the model call fails (after `AI_RETRIES` transient retries), the comparison *
 
 - Node.js 22.5+ (uses the built-in `node:sqlite` module for UI-saved settings; developed against Node 26).
 - Either a local LM Studio server **or** an OpenRouter API key (see below) — for the pixel-diff AI triage.
-- _(Optional, for the [OCR content-invariance check](#ocr-content-invariance-check) only)_ the sibling [Unlimited-OCR](../ocr-testing/Unlimited-OCR) repo with its Python venv set up. No LM Studio/OpenRouter/SGLang is needed for this check — it runs the model in-process on Apple Silicon (MPS) or CPU. Model weights download from HuggingFace on first run and are cached afterward.
+- _(Optional, for the [OCR content-invariance check](#ocr-content-invariance-check) only)_ Python 3.10 with the worker venv set up in [`ocr-worker/`](./ocr-worker) (see [its README](./ocr-worker/README.md)). No LM Studio/OpenRouter/SGLang is needed for this check — it runs the model in-process on Apple Silicon (MPS) or CPU. Model weights download from HuggingFace on first run and are cached afterward.
 
 ### Option A: LM Studio (local, default)
 
@@ -223,13 +223,21 @@ The captured screenshots in the report show exactly what the browser received, s
 
 ## OCR content-invariance check
 
-Pixel and DOM diffing answer "did anything *look* different?" — which is exactly the wrong question during an intentional styling change (CSS refactor, font swap, layout migration), where every pixel diff fires. The OCR check answers the orthogonal question: **did the actual rendered text content survive the visual change?** It OCRs both screenshots with the dedicated [Unlimited-OCR](../ocr-testing/Unlimited-OCR) model, strips styling down to text, and asserts the content is unchanged. It catches clipped/truncated text, a word dropped from a re-wrap, a broken ligature, an overlay covering text, or a dynamic field reset to a placeholder — while being deliberately blind to the cosmetic changes pixel diffing flags.
+Pixel and DOM diffing answer "did anything *look* different?" — which is exactly the wrong question during an intentional styling change (CSS refactor, font swap, layout migration), where every pixel diff fires. The OCR check answers the orthogonal question: **did the actual rendered text content survive the visual change?** It OCRs both screenshots with a dedicated OCR model, strips styling down to text, and asserts the content is unchanged. It catches clipped/truncated text, a word dropped from a re-wrap, a broken ligature, an overlay covering text, or a dynamic field reset to a placeholder — while being deliberately blind to the cosmetic changes pixel diffing flags.
 
-It runs the Unlimited-OCR model in a persistent Python worker (loaded once, OCRs many images) — no LM Studio/SGLang server needed. Point it at the sibling repo via two env vars (defaults shown):
+It runs the model in a persistent Python worker (loaded once, OCRs many images) — no LM Studio/SGLang server needed. The worker is bundled in [`ocr-worker/`](./ocr-worker); set up its venv once:
 
 ```bash
-UNLIMITED_OCR_DIR=../ocr-testing/Unlimited-OCR        # the Unlimited-OCR repo
-UNLIMITED_OCR_PYTHON=${UNLIMITED_OCR_DIR}/.venv/bin/python
+cd ocr-worker
+python3.10 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+By default the engine looks for `ocr-worker/.venv/bin/python`. Override the location/interpreter with two env vars if needed:
+
+```bash
+OCR_WORKER_DIR=./ocr-worker                       # dir holding ocr_server.py
+OCR_WORKER_PYTHON=${OCR_WORKER_DIR}/.venv/bin/python
 ```
 
 ### CLI
@@ -391,8 +399,8 @@ Settings are resolved in priority order:
 | `WARM_MODEL_ON_START` | `false` | Load the model via LM Studio's native API on startup |
 | `COMPARE_SERVER_URL` | `http://localhost:3100` | Client: where to send comparisons |
 | `UPDATE_BASELINES` | _(empty)_ | Client: `1` to (re)write baselines (visual **and** OCR) |
-| `UNLIMITED_OCR_DIR` | `../ocr-testing/Unlimited-OCR` | OCR check: path to the Unlimited-OCR repo (with `ocr_server.py`) |
-| `UNLIMITED_OCR_PYTHON` | `${UNLIMITED_OCR_DIR}/.venv/bin/python` | OCR check: Python interpreter that runs the worker |
+| `OCR_WORKER_DIR` | `./ocr-worker` | OCR check: directory holding the worker (`ocr_server.py`) |
+| `OCR_WORKER_PYTHON` | `${OCR_WORKER_DIR}/.venv/bin/python` | OCR check: Python interpreter that runs the worker |
 
 ## Project layout
 
@@ -418,7 +426,11 @@ client/
   ocrBaseline.ts        .txt OCR baseline read/write
 scripts/smoke.ts        standalone smoke test
 scripts/ocrDiff.ts      ocr-diff CLI (compare two directories of images)
+ocr-worker/
+  ocr_server.py         persistent OCR worker (JSON-lines, loads model once)
+  run_ocr.py            model loading + single-image inference
+  requirements.txt      pinned Python deps for the worker venv
 examples/               runnable Playwright demos (incl. ocrInvariant.spec.ts)
 ```
 
-> The OCR worker itself (`ocr_server.py`) lives in the sibling [Unlimited-OCR](../ocr-testing/Unlimited-OCR) repo; this repo drives it as a subprocess via `src/ocr/ocrEngine.ts`.
+> `src/ocr/ocrEngine.ts` drives `ocr-worker/ocr_server.py` as a subprocess. See [`ocr-worker/README.md`](./ocr-worker/README.md) for the worker's venv setup.
